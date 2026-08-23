@@ -1,0 +1,22 @@
+{
+  "imports": {
+    "@netopwibby/dedent": "jsr:@netopwibby/dedent@^0.1.0",
+    "@std/fmt": "jsr:@std/fmt@^1.0.10",
+    "@std/path": "jsr:@std/path@^1.1.6",
+    "helper/": "./helper/",
+    "mdast": "npm:mdast@^3.0.0",
+    "rehype-document": "npm:rehype-document@^7.0.3",
+    "rehype-format": "npm:rehype-format@^5.0.1",
+    "rehype-meta": "npm:rehype-meta@^4.0.1",
+    "rehype-stringify": "npm:rehype-stringify@^10.0.1",
+    "remark-gfm": "npm:remark-gfm@^4.0.1",
+    "remark-parse": "npm:remark-parse@^11.0.0",
+    "remark-rehype": "npm:remark-rehype@^11.1.2",
+    "to-vfile": "npm:to-vfile@^8.0.0",
+    "unified": "npm:unified@^11.0.5"
+  },
+  "tasks": {
+    "dev": "deno run --allow-env --allow-net --allow-read --watch main.ts development",
+    "start": "deno run --allow-env --allow-net --allow-read main.ts"
+  }
+}

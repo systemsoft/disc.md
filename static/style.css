@@ -1,0 +1,222 @@
+body {
+  font-size: 1.25rem;
+  height: fit-content;
+  line-height: 1.33;
+  padding-bottom: 3rem;
+}
+
+h1 {
+  border-bottom: 1px solid var(--uchu-gray-1);
+  font-size: 4rem;
+  font-weight: 500;
+  letter-spacing: -0.05rem;
+  line-height: 1;
+  margin-bottom: 1rem;
+  padding: 3rem 2rem 1rem 2rem;
+}
+
+h2, h3, h4, h5 {
+  font-weight: 500;
+  line-height: 1;
+  margin-bottom: 1rem;
+  margin-top: 1rem;
+  padding: 0.5rem 2rem;
+}
+
+blockquote {
+  font-weight: 500;
+
+  + p {
+    margin-top: 1rem;
+  }
+}
+
+p, ul {
+  padding-left: 2rem;
+}
+
+ol, p, ul {
+  max-width: 720px;
+  padding-right: 2rem;
+  text-wrap: pretty;
+
+  + blockquote,
+  + ol,
+  + p,
+  + pre,
+  + table,
+  + ul {
+    margin-top: 1rem;
+  }
+
+  > code {
+    background-color: var(--uchu-yellow-1);
+    color: var(--uchu-yellow-9);
+    white-space: nowrap;
+  }
+}
+
+ol, ul {
+  li {
+    &:not(:last-of-type) {
+      margin-bottom: 0.25rem;
+    }
+
+    > code {
+      background-color: var(--uchu-yellow-1);
+      color: var(--uchu-yellow-9);
+    }
+
+    p {
+      padding-left: 0;
+    }
+
+    ul {
+      padding-left: calc(1rem + 5px);
+    }
+  }
+}
+
+ol {
+  counter-reset: items;
+  list-style-position: outside;
+  padding-left: calc(3rem + 1.5ch + 1px);
+
+  ::marker {
+    font-family: var(--monospace);
+  }
+}
+
+ul {
+  list-style-position: outside;
+  padding-left: 3rem;
+
+  ::marker {
+    content: "• ";
+  }
+}
+
+hr {
+  width: 100%; height: 2px;
+
+  background-color: var(--uchu-gray-1);
+  margin-bottom: 1rem;
+  margin-top: 1rem;
+}
+
+h2, h3, h4, strong, table {
+  code {
+    background-color: var(--uchu-yellow-1);
+    color: var(--uchu-yellow-9);
+  }
+}
+
+table {
+  border-spacing: 0;
+  font-size: 1rem;
+  margin-bottom: 1rem;
+  margin-left: 2rem;
+  max-width: 720px;
+  width: 100%;
+
+  thead {
+    /*text-transform: lowercase;*/
+    text-transform: uppercase;
+    color: var(--uchu-yin-5);
+
+    th {
+      font-size: 1rem;
+      font-weight: 500;
+      letter-spacing: 0.025rem;
+      /*padding-left: 1ch;*/
+      padding-right: 2rem;
+    }
+  }
+
+  tbody {
+    tr {
+      &:nth-child(odd) {
+        background-color: oklch(var(--uchu-orange-1-raw) / 30%);
+      }
+
+      &:hover {
+        background-color: var(--uchu-orange-1);
+        color: var(--uchu-orange-9);
+
+        a,
+        code {
+          background-color: inherit;
+          color: inherit;
+        }
+      }
+    }
+
+    td {
+      /*padding-left: 1ch;*/
+      padding-right: 1ch;
+    }
+  }
+
+  code {
+    font-size: 1rem;
+    white-space: nowrap;
+  }
+}
+
+pre {
+  background-color: color-mix(in oklch shorter hue, var(--uchu-gray-1) 50%, var(--uchu-yang) 50%);
+  color: var(--uchu-yin-9);
+  font-size: 1rem;
+  overflow-x: auto;
+  padding: 1rem 1rem 1rem 2rem;
+
+  + blockquote,
+  + ol,
+  + p,
+  + table,
+  + ul {
+    margin-top: 1rem;
+  }
+
+  .hljs-meta-string,
+  .hljs-regexp,
+  .hljs-string {
+    color: var(--uchu-green-9);
+  }
+
+  .hljs-literal,
+  .hljs-number {
+    color: var(--uchu-purple-6);
+  }
+
+  .hljs-addition {
+    background-color: var(--uchu-green-1);
+    color: var(--uchu-green-8);
+  }
+
+  .hljs-comment {
+    color: var(--uchu-red-8);
+  }
+
+  .hljs-deletion {
+    background-color: var(--uchu-red-1);
+    color: var(--uchu-red-8);
+  }
+
+  .hljs-title {
+    color: var(--uchu-blue-7);
+  }
+}
+
+a {
+  font-weight: 500;
+  transition: color 0.2s ease-in-out;
+
+  &:not(:hover) {
+    color: var(--uchu-blue-5);
+  }
+
+  &:hover {
+    color: var(--uchu-blue-3);
+  }
+}

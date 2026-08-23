@@ -1,0 +1,81 @@
+*,
+*::before,
+*::after {
+  margin: 0; padding: 0;
+
+  appearance: none;
+  border: none;
+  box-sizing: inherit;
+}
+
+* {
+  &:focus-visible {
+    outline: thick ridge oklch(54.87% 0.222 260.33);
+    outline-offset: 5px;
+  }
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/static/jetbrains-medium.woff2") format("woff2");
+}
+
+:root {
+  --inline-padding: max(calc(4.7vw - 0px / 2), calc(50vw - 1500px /2 - 0px / 2));
+  --monospace: "Berkeley Mono", "JetBrains Mono", monospace;
+  font-family: Inter, system-ui, sans-serif;
+  font-feature-settings: "liga" 1, "calt" 1;
+  font-variant-numeric: slashed-zero;
+
+  @supports (font-variation-settings: normal) {
+    font-family: InterVariable, sans-serif;
+  }
+}
+
+html {
+  box-sizing: border-box;
+  font-size: 12px;
+  scroll-behavior: smooth;
+}
+
+html,
+body {
+  width: 100%; height: 100%;
+}
+
+body {
+  background-color: var(--uchu-yang);
+  color: var(--uchu-yin-9);
+}
+
+abbr {
+  cursor: help;
+}
+
+code {
+  font-family: var(--monospace);
+}
+
+sup {
+  line-height: 0.8;
+
+  a {
+    color: inherit;
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+}
+
+.undershirt {
+  align-items: inherit;
+  display: inherit;
+  flex-direction: inherit;
+  justify-content: inherit;
+  margin-left: auto;
+  margin-right: auto;
+  max-width: 1500px;
+  width: 100%;
+}
