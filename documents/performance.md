@@ -230,6 +230,39 @@ Most performance work in Disc is one of: missing index, undersized pool, or cach
 
 ---
 
+## Benchmark Suite
+
+Disc ships a `deno bench` suite in `benchmarks/` for measuring the pure-CPU stages of the pipeline -- parsing, compilation, codegen, schema diffing, and cache behaviour. Use it to catch regressions in the compiler when you change it; use the [EXPLAIN](#explain) and [Prometheus](#prometheus-gauges-to-watch) tooling above for query-level work against real data.
+
+```bash
+deno task bench
+```
+
+The `bench:pg` task runs the same suite with `DISC_PG_AUTO=1`, matching the `test:pg` convention so PG-backed benchmarks can be added under the same harness:
+
+```bash
+deno task bench:pg
+```
+
+### Suites
+
+| File                            | Measures                                                                           |
+| :------------------------------ | :--------------------------------------------------------------------------------- |
+| `benchmarks/cache.bench.ts`     | Cache hit, miss, fill, eviction-on-overflow, and mixed hit/miss paths              |
+| `benchmarks/codegen.bench.ts`   | Schema-to-TypeScript generation                                                    |
+| `benchmarks/compiler.bench.ts`  | EdgeQL AST to SQL AST compilation, per query shape                                 |
+| `benchmarks/migration.bench.ts` | Schema differ: empty-to-simple, add/remove types, no-op diffs, and 20-type schemas |
+| `benchmarks/parser.bench.ts`    | EdgeQL tokenizing and parsing, per query shape                                     |
+| `benchmarks/pipeline.bench.ts`  | End-to-end parse to SQL string, per query shape                                    |
+
+The compiler, parser, and pipeline suites all run the same query set -- simple select, filtered select, nested shape, insert, update, delete, and ordered-and-limited -- so a slowdown can be attributed to a stage by comparing the three.
+
+### Adding a Benchmark
+
+Benchmarks are plain `Deno.bench()` calls; the suite runs with `--allow-all --no-check`. Name cases `"<stage>: <case>"` (for example `"compile: nested shape"`) so results group readably in the output table, and build fixtures from `createTestSchema()` in `compiler/context.ts` rather than hitting a live database -- these suites are deliberately in-process so they stay deterministic.
+
+---
+
 ## See Also
 
 - [Schema → Indexes](schema.md#indexes) — full SDL syntax for indexes
@@ -237,3 +270,4 @@ Most performance work in Disc is one of: missing index, undersized pool, or cach
 - [Production Deployment](production-deployment.md) — sizing, health checks, troubleshooting
 - [EdgeQL → EXPLAIN](edgeql.md#explain) — `analyze` semantics
 - [Bundled PostgreSQL](bundled-postgres.md) — PG configuration knobs that feed the pool
+- [Testing](testing.md) — running the test suite the benchmarks share fixtures with

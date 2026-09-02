@@ -816,6 +816,67 @@ The generated files include comments indicating they were scaffolded by `disc de
 
 ---
 
+## Kubernetes (Helm)
+
+Disc ships a Helm chart at `deploy/helm/disc` for self-hosting on Kubernetes. Unlike `disc deploy`, the chart is not generated per-project -- it is a versioned artifact in the repository, tracked against the Disc release (`appVersion` in `Chart.yaml` is bumped by `deno task version:bump`).
+
+### What the Chart Deploys
+
+- A `Deployment` running the Disc server image (`ghcr.io/systemsoft/disc`)
+- A `Service` (ClusterIP by default) exposing port 5656
+- A chart-managed `Secret` holding `DATABASE_URL` and `DISC_JWT_SECRET`, unless you bring your own
+- Optional `Ingress`, `HorizontalPodAutoscaler`, `PodDisruptionBudget`, `ServiceMonitor`, and `NetworkPolicy`
+
+> **External PostgreSQL only.** The chart does not deploy the bundled PostgreSQL that ships with the Disc CLI -- that path is a local-development convenience. Point the chart at managed PostgreSQL 16+ (RDS, Cloud SQL, AlloyDB, the Bitnami chart, Crunchy Postgres Operator, etc.).
+
+### Prerequisites
+
+- Kubernetes 1.25+
+- Helm 3.10+
+- An external PostgreSQL 16+ instance reachable from the cluster
+- cert-manager, for TLS issuance (optional)
+- Prometheus Operator, for `ServiceMonitor` support (optional)
+
+### Install
+
+```bash
+helm install disc ./deploy/helm/disc \
+  --set database.external.url='postgres://disc:secret@my-pg.example.com:5432/disc'
+```
+
+The chart generates a JWT signing secret on first install and preserves it across upgrades via `helm.sh/resource-policy: keep`.
+
+### Upgrade
+
+```bash
+helm upgrade disc ./deploy/helm/disc -f my-values.yaml
+```
+
+Rolling updates use `maxSurge: 1` / `maxUnavailable: 0`, so a healthy replica always serves during the rollout. `terminationGracePeriodSeconds` is 30 to match Disc's `shutdownDrainTimeout` (see [Graceful Shutdown](#graceful-shutdown)).
+
+### Common Values
+
+`values.yaml` documents every option inline. The overrides most deployments need:
+
+| Path                                                       | Purpose                     |
+| :--------------------------------------------------------- | :-------------------------- |
+| `image.tag`                                                | Pin to an exact image tag   |
+| `replicaCount`                                             | HA replica count            |
+| `database.external.url` / `database.external.urlSecretRef` | Connect to your PostgreSQL  |
+| `auth.jwtSecret` / `auth.jwtSecretRef`                     | Provide your own JWT secret |
+| `tls.enabled`, `tls.certSecret`                            | In-pod TLS termination      |
+| `ingress.enabled`, `ingress.hosts`, `ingress.tls`          | Expose to the world         |
+| `autoscaling.enabled`                                      | Turn on the HPA             |
+| `metrics.enabled`, `metrics.serviceMonitor.enabled`        | Wire up Prometheus          |
+
+`values-prod-example.yaml` in the chart directory is a production-grade overlay to start from.
+
+### OAuth, SMTP, and Captcha
+
+These are configured at SDK-instantiation time in your own code rather than through `DISC_*` environment variables, so the chart cannot template them directly. To wire them into a cluster today, mount your config as a file via `extraVolumes` / `extraVolumeMounts` and reference it from your bootstrap script. See [Auth → Email Delivery (SMTP)](auth.md#email-delivery-smtp) for the config shape.
+
+---
+
 ## Security Checklist
 
 Before going live, verify each item:

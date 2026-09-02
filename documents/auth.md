@@ -226,7 +226,7 @@ curl -X POST http://localhost:8080/auth/reset \
 }
 ```
 
-In a production deployment, you would integrate an email service to deliver the reset token to the user. The server generates the token but does not send email by default.
+The endpoint always generates the token; delivery depends on configuration. Configure [`smtp` + `emailBaseUrl`](#email-delivery-smtp) and Disc mails the reset link itself. Without them, a `NoopMailer` is installed and the token is generated but never sent -- deliver it yourself via a [webhook](#webhooks) subscriber on `PasswordResetRequested`.
 
 ---
 
@@ -364,6 +364,13 @@ interface AuthConfig {
   passwordRequireNumbers?: boolean; // Default: false
   passwordRequireSpecial?: boolean; // Default: false
   passwordRequireUppercase?: boolean; // Default: false
+
+  // Email delivery -- see "Email Delivery (SMTP)" below
+  branding?: AuthBrandingConfig; // Default: { appName: "Your account" }
+  emailBaseUrl?: string; // No default -- required to send any email
+  emailTemplates?: EmailTemplateOverrides; // Default: built-in templates
+  magicLinkUrlTemplate?: string; // Default: `${emailBaseUrl}/auth/magic?token=<token>`
+  smtp?: SmtpConfig; // No default -- unset installs a NoopMailer
 }
 ```
 
@@ -734,6 +741,124 @@ const zitadel = await createOidcProvider({
 
 The async factory fetches `.well-known/openid-configuration` once at boot and constructs the provider from the discovered endpoints. Defaults scopes to `["openid", "email", "profile"]`; throws if the issuer omits `userinfo_endpoint` (Disc requires it for identity resolution). For deployments that already cache discovery results, `genericOidcProvider({...})` takes pre-resolved endpoints.
 
+### Email Delivery (SMTP)
+
+Verification links, password-reset links, magic links, and magic codes are delivered by an in-house SMTP client that ships with Disc (`smtp/`). There is no third-party mail dependency: the project is jsr-only (no `npm:` specifiers), and the submission surface Disc needs is implemented directly on `Deno.connect` / `Deno.startTls`.
+
+#### Configuration
+
+Email is wired at `AuthProvider` construction time via two paired fields:
+
+```typescript
+const config: AuthConfig = {
+  emailBaseUrl: "https://app.example.com", // required for any email to send
+  jwtSecret: "...",
+  smtp: {
+    auth: { pass: Deno.env.get("SMTP_PASS")!, user: "no-reply@example.com" },
+    from: "Acme Cloud <no-reply@example.com>",
+    host: "smtp.example.com",
+    port: 587
+  }
+};
+```
+
+`emailBaseUrl` is not optional in practice: tokens alone are useless without the route that consumes them, so **`smtp` configured without `emailBaseUrl` refuses to register the email listener** and logs an error at construction. This is deliberate -- surfacing the misconfig at boot beats discovering it when the first user requests a reset.
+
+The inverse is allowed: setting `emailBaseUrl` alone installs a `NoopMailer` that logs at INFO and returns a synthetic result. That lets you dry-run the wiring, and it keeps flows like `requestMagicLink()` working for deployments that deliver mail through a [webhook](#webhooks) subscriber instead of SMTP. ([gh/geldata#8224](https://github.com/geldata/gel/issues/8224))
+
+#### `SmtpConfig`
+
+| Field                   | Type                              | Default                        | Notes                                                                                                                         |
+| :---------------------- | :-------------------------------- | :----------------------------- | :---------------------------------------------------------------------------------------------------------------------------- |
+| `auth`                  | `{ user: string; pass: string; }` | none (unauthenticated)         | `AUTH PLAIN` when advertised, otherwise `AUTH LOGIN`.                                                                         |
+| `from`                  | `string` (required)               | --                             | RFC 5322 default From. Overridable per message.                                                                               |
+| `host`                  | `string` (required)               | --                             | SMTP server hostname or IP.                                                                                                   |
+| `hostname`              | `string`                          | `"localhost"`                  | Name sent in the EHLO greeting. Some servers (Gmail) reject generic names -- set a reverse-DNS-resolvable name in production. |
+| `port`                  | `number`                          | `587` (or `465` when `secure`) | 587 = submission + STARTTLS; 465 = implicit TLS.                                                                              |
+| `replyTo`               | `string`                          | none                           | Reply-To header on every send.                                                                                                |
+| `secure`                | `boolean`                         | `false`                        | `true` connects with implicit TLS. `false` connects plaintext and upgrades via STARTTLS when advertised.                      |
+| `timeoutMs`             | `number`                          | `30000`                        | Per-message timeout.                                                                                                          |
+| `tlsRejectUnauthorized` | `boolean`                         | `true`                         | See the TLS caveat below.                                                                                                     |
+
+#### What the client does and does not do
+
+Supported: TCP (25/587) and direct TLS (465), EHLO with extension parsing, STARTTLS upgrade, `AUTH PLAIN` / `AUTH LOGIN`, RFC 5321 dot-stuffing, RFC 5322 headers (From, To, Subject, Date, Message-ID, MIME-Version), `multipart/alternative` when an HTML body is supplied, and RFC 2047 encoded-words for non-ASCII subject lines.
+
+Not supported: DKIM/SPF/DMARC signing, attachments, XOAUTH2, connection pooling (one connection per send, like nodemailer's default transport -- auth-driven sends are infrequent), pipelining, SMTPUTF8, and DSN.
+
+> **TLS validation caveat ([gh/geldata#8533](https://github.com/geldata/gel/issues/8533)).** Deno exposes no per-connection `rejectUnauthorized` flag on `connectTls` / `startTls`. Setting `tlsRejectUnauthorized: false` only logs a warning at mailer construction -- it does not disable validation. To actually talk to a self-signed server you must launch the process with `deno run --unsafely-ignore-certificate-errors=smtp.dev.local ...`. For production, point `host` at a server with a valid certificate.
+
+#### Which events send mail
+
+The email listener subscribes to the same event stream as [webhooks](#webhooks) and mails on five of them:
+
+| Event                        | Email sent            |
+| :--------------------------- | :-------------------- |
+| `EmailVerificationRequested` | Verification link     |
+| `MagicCodeRequested`         | 6-digit sign-in code  |
+| `MagicLinkRequested`         | Magic link            |
+| `MagicLinkSignupRequested`   | Magic link (new user) |
+| `PasswordResetRequested`     | Password reset link   |
+
+`EmailVerified`, `IdentityAuthenticated`, and `IdentityCreated` are notification-only -- nothing is mailed. Delivery failures are logged and never re-thrown, so a dead mail server cannot fail an auth request.
+
+#### Template overrides
+
+The built-in templates already interpolate [branding](#branding). To replace a body outright, supply a renderer per event -- any renderer left undefined falls back to the built-in:
+
+```typescript
+const config: AuthConfig = {
+  emailBaseUrl: "https://app.example.com",
+  emailTemplates: {
+    verification: ctx => ({
+      html: `<p>Confirm: <a href="${ctx.baseUrl}/verify?token=${ctx.verificationToken}">here</a></p>`,
+      subject: `Confirm your ${ctx.branding?.appName ?? "account"}`,
+      text: `Confirm: ${ctx.baseUrl}/verify?token=${ctx.verificationToken}`
+    })
+  },
+  jwtSecret: "...",
+  smtp: { from: "...", host: "..." }
+};
+```
+
+Every renderer returns `{ html, subject, text }`. The context it receives carries `branding` and `recipient` plus the event's payload:
+
+| Override        | Context fields beyond `branding` / `recipient` |
+| :-------------- | :--------------------------------------------- |
+| `magicCode`     | `code`                                         |
+| `magicLink`     | `baseUrl`, `magicLinkToken`, `link?`           |
+| `passwordReset` | `baseUrl`, `resetToken`                        |
+| `verification`  | `baseUrl`, `verificationToken`                 |
+
+For `magicLink`, `link` is pre-built by the listener -- it already reflects [`magicLinkUrlTemplate`](#custom-url-template) when one is configured, so prefer `ctx.link` over reconstructing the URL yourself.
+
+#### Using the mailer directly
+
+The module is exported independently if you want to send mail outside the auth flows:
+
+```typescript
+import { createMailer } from "disc/smtp/mod.ts";
+
+const mailer = createMailer({
+  auth: { pass: "...", user: "no-reply@example.com" },
+  from: "Disc <no-reply@example.com>",
+  host: "smtp.example.com",
+  port: 587
+});
+
+const result = await mailer.send({
+  html: "<p>HTML body</p>", // optional; triggers multipart/alternative
+  subject: "Welcome to Disc",
+  text: "Plain text body",
+  to: "user@example.com"
+});
+// result: { accepted: string[], messageId: string, rejected: string[] }
+```
+
+`accepted` / `rejected` mirror nodemailer's shape so partial failures (some recipients accepted, others 550) are visible. `createMailer(undefined)` returns the `NoopMailer`.
+
+(`smtp/client.ts`, `smtp/mailer.ts`, `auth/email-listener.ts`, `auth/email-templates.ts`)
+
 ### Branding
 
 Override the "from" identity used in built-in email templates and admin-UI copy without forking the templates:
@@ -957,7 +1082,7 @@ See [Production Deployment](production-deployment.md) for full TLS configuration
 
 **Disable open registration when appropriate.** If your application manages user creation through an admin flow, set `allowRegistration: false` to prevent unauthorized account creation.
 
-**Do not expose reset tokens in responses.** In production, the reset token should be delivered via email, not returned in the HTTP response. The current implementation returns success without exposing the token.
+**Do not expose reset tokens in responses.** In production, the reset token should be delivered via email, not returned in the HTTP response. The current implementation returns success without exposing the token. Configure [SMTP](#email-delivery-smtp) so the built-in listener mails the link.
 
 ---
 
@@ -966,3 +1091,4 @@ See [Production Deployment](production-deployment.md) for full TLS configuration
 - [Access Policies](access-policies.md) -- row-level security powered by auth context
 - [Server Configuration](server.md) -- full server config reference
 - [Production Deployment](production-deployment.md) -- TLS, rate limiting, and hardening
+- [Production Deployment → Kubernetes (Helm)](production-deployment.md#kubernetes-helm) -- mounting OAuth / SMTP / captcha config in a cluster

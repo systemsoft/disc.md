@@ -14,7 +14,7 @@
 | Look up built-in functions           | [Functions Reference](functions.md)               |
 | Use the CLI                          | [CLI Reference](cli.md)                           |
 | Manage schema changes over time      | [Migrations](migrations.md)                       |
-| Generate TypeScript types            | [Codegen](codegen.md)                             |
+| Generate a typed client (TS/Rust/Go) | [Codegen](codegen.md)                             |
 | Use the TypeScript SDK in my app     | [Client SDK](client-sdk.md)                       |
 | Write filter queries against schemas | [Filter API](filter-api.md)                       |
 | Configure the Disc server            | [Server Configuration](server.md)                 |
@@ -24,6 +24,9 @@
 | Browse data in a web UI              | [Admin UI](admin-ui.md)                           |
 | Understand the bundled PostgreSQL    | [Bundled PostgreSQL](bundled-postgres.md)         |
 | Deploy to production                 | [Production Deployment](production-deployment.md) |
+| Deploy on Kubernetes with Helm       | [Production Deployment → Kubernetes (Helm)](production-deployment.md#kubernetes-helm) |
+| Send auth emails over SMTP           | [Auth → Email Delivery (SMTP)](auth.md#email-delivery-smtp) |
+| Drive Disc from a Deno script        | [CLI → Programmatic API](cli.md#programmatic-api) |
 | Tune queries, indexes, and caches    | [Performance](performance.md)                     |
 | Run Disc via Docker Compose          | [Docker Compose](docker-compose.md)               |
 | Run and write tests                  | [Testing](testing.md)                             |
@@ -39,7 +42,7 @@
 
 **Bundled PostgreSQL.** Running `disc init` downloads and manages a PostgreSQL instance automatically. Users never install, configure, or maintain PostgreSQL directly. For production, an external PostgreSQL can be connected via `--backend-dsn`.
 
-**TypeScript-native.** The entire stack -- schema parser, query compiler, migration engine, server, CLI, and SDK -- is written in TypeScript and runs on Deno. No Python, Rust, or Java dependencies.
+**TypeScript-native.** The entire stack -- schema parser, query compiler, migration engine, server, CLI, and SDK -- is written in TypeScript and runs on Deno. No Python, Rust, or Java dependencies at runtime. (Your *application* need not be TypeScript: `disc codegen` also emits Rust and Go clients that speak the same HTTP API.)
 
 ---
 
@@ -50,19 +53,19 @@
 - [EdgeQL](edgeql.md) -- `SELECT`, `INSERT`, `UPDATE`, `DELETE`, shapes, filters, ordering, pagination, aggregation, subqueries, parameters.
 - [EdgeQL Cheat Sheet](edgeql-cheatsheet.md) -- One-page reference of common EdgeQL forms.
 - [Functions Reference](functions.md) -- Built-in scalar functions, aggregate functions, date/time functions, string functions, math functions.
-- [CLI Reference](cli.md) -- All CLI commands, flags, and usage examples.
+- [CLI Reference](cli.md) -- All CLI commands, flags, and usage examples, plus the programmatic `CLI.*` API for scripting Disc from Deno.
 - [Migrations](migrations.md) -- Creating, applying, rolling back, and squashing migrations. Schema diffing and DDL generation.
-- [Codegen](codegen.md) -- Generating TypeScript interfaces, query builders, and client code from your schema.
+- [Codegen](codegen.md) -- Generating interfaces, query builders, and client code from your schema, in TypeScript, Rust, or Go.
 - [Client SDK](client-sdk.md) -- Using the `DiscClient` to run queries, manage transactions, subscribe to changes, and handle authentication.
 - [Filter API](filter-api.md) -- Object-shaped filter queries on the generated client: operators, combinators, link traversal (single, multi-hop, multi-link, junction tables), shape narrowing, ordering, pagination.
 - [Server Configuration](server.md) -- Environment variables, ports, connection pools, CORS, WebSockets, logging, and protocol options.
-- [Auth](auth.md) -- JWT-based authentication, user registration, login, session management, and the `AuthManager` SDK.
+- [Auth](auth.md) -- JWT-based authentication, user registration, login, session management, email delivery over SMTP, and the `AuthManager` SDK.
 - [Access Policies](access-policies.md) -- Object-level access policies in SDL, row-level security enforcement, auth context bridging.
 - [Extensions](extensions.md) -- Built-in extensions and the extension system architecture.
 - [Admin UI](admin-ui.md) -- Schema browser, data viewer, query editor, REPL, and migration history in the web-based admin interface.
 - [Bundled PostgreSQL](bundled-postgres.md) -- How Disc downloads, initializes, and manages PostgreSQL. Instance lifecycle, version upgrades, socket configuration.
-- [Production Deployment](production-deployment.md) -- TLS, connection pools, health checks, rate limiting, Docker, native binaries, systemd, monitoring.
-- [Performance](performance.md) -- Indexing strategy, EXPLAIN diagnostics, parse/compile/EXPLAIN caches, pool tuning, key Prometheus gauges.
+- [Production Deployment](production-deployment.md) -- TLS, connection pools, health checks, rate limiting, Docker, native binaries, systemd, Kubernetes via Helm, monitoring.
+- [Performance](performance.md) -- Indexing strategy, EXPLAIN diagnostics, parse/compile/EXPLAIN caches, pool tuning, key Prometheus gauges, the `deno bench` suite.
 - [Docker Compose](docker-compose.md) -- Self-hosted Disc + bundled PostgreSQL via `docker compose up`.
 - [Testing](testing.md) -- Running the suite, test categories, authoring new tests, env isolation, PG-backed tests.
 - [REST API](rest-api.md) -- Schema-derived REST endpoints for every object type, plus the OpenAPI 3.1 spec at `/api/openapi.json`.

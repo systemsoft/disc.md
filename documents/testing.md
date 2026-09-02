@@ -232,3 +232,9 @@ Drop the tables you created in a `finally` block — `resetTestDatabase(pool)` o
 ## Adding a new test category
 
 If you find yourself writing tests that don’t fit any existing category — for instance, fuzzing the EdgeQL parser, or running a long-running soak test — discuss before adding new top-level directories. The current shape (slice-by-slice with PG-gated peers) keeps the mental model simple.
+
+---
+
+## Benchmarks
+
+Correctness lives in `deno task test`; throughput lives in `deno task bench`, a separate `deno bench` suite under `benchmarks/` covering the parser, compiler, codegen, schema differ, and caches. It shares fixtures with the test suite (`createTestSchema()` from `compiler/context.ts`) and runs entirely in-process. See [Performance → Benchmark Suite](performance.md#:~:text=for%20code%20changes.-,Benchmark%20Suite,-Disc%20ships%20a).

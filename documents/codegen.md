@@ -1,8 +1,10 @@
 # Code Generation
 
-Disc generates fully-typed TypeScript code from your EdgeQL schema. Running `disc codegen` reads your `.disc` (or `.gel` / `.esdl`) schema files and produces TypeScript interfaces, insert/update types, enum types, query builder classes, and a typed client -- giving you end-to-end type safety from schema to application code.
+Disc generates a fully-typed client from your EdgeQL schema in **TypeScript, Rust, or Go**. Running `disc codegen` reads your `.disc` (or `.gel` / `.esdl`) schema files and produces interfaces, insert/update types, enum types, query builder classes, and a typed client -- giving you end-to-end type safety from schema to application code.
 
-> **Codegen is one of two type-safety paths.** For projects that prefer to skip the build step entirely, the SDK ships a runtime query builder (`createQueryBuilder(client, schema)`) where `defineSchema()` declares types in TypeScript and the same end-to-end inference applies — no generated files, no codegen step in CI. See [Client SDK → Codegen-free query builder](client-sdk.md#codegen-free-query-builder) for the alternative pattern. Both paths use the same underlying `client.query()` runtime; pick whichever fits your build pipeline.
+> **Three language targets.** `disc codegen` emits TypeScript by default; `disc codegen --rust` emits a Cargo crate and `disc codegen --go` emits a Go package. All three come from the same language-neutral IR, so the type mappings, insert/update exclusion rules, and query-builder surface documented below apply to every target. The bulk of this page uses TypeScript for its examples; see [Architecture & Language Targets](#:~:text=schema%20files%20change.-,Architecture%20%26%20Language%20Targets,-Codegen%20runs%20on) for the Rust and Go specifics.
+
+> **Codegen is one of two type-safety paths.** For projects that prefer to skip the build step entirely, the SDK ships a runtime query builder (`createQueryBuilder(client, schema)`) where `defineSchema()` declares types in TypeScript and the same end-to-end inference applies — no generated files, no codegen step in CI. See [Client SDK → Codegen-free query builder](client-sdk.md#:~:text=Codegen%2Dfree%20query%20builder) for the alternative pattern. Both paths use the same underlying `client.query()` runtime; pick whichever fits your build pipeline.
 
 Related documentation: [Schema](schema.md) | [Client SDK](client-sdk.md) | [EdgeQL](edgeql.md)
 
@@ -15,6 +17,16 @@ disc codegen
 ```
 
 Reads schema files from `dbschema/` (looks for `.disc` files first, then `.gel`, then `.esdl`), generates TypeScript files, and writes them to `./dbschema/disc-client/` by default. Pass `--output <dir>` to write elsewhere.
+
+### Choosing a Language
+
+```bash
+disc codegen          # TypeScript -> ./dbschema/disc-client
+disc codegen --rust   # Rust crate -> ./dbschema/disc-client-rust
+disc codegen --go     # Go package -> ./dbschema/disc-client-go
+```
+
+Each flag replaces the TypeScript output rather than adding to it -- run the command once per language you need. If both `--rust` and `--go` are passed, `--rust` wins. `--output` overrides the default directory for any target.
 
 ### Custom Output Directory
 

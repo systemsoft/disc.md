@@ -331,7 +331,7 @@ disc> select User {
 
 ## `disc codegen`
 
-Generate TypeScript types, query builders, and client code from your schema. Supports both single-file and multi-file schema discovery.
+Generate types, query builders, and client code from your schema, in TypeScript (default), Rust (`--rust`), or Go (`--go`). Supports both single-file and multi-file schema discovery.
 
 ### Usage
 
@@ -341,17 +341,19 @@ disc codegen [options]
 
 ### Options
 
-| Flag                  | Description                                   | Default                                            |
-| :-------------------- | :-------------------------------------------- | :------------------------------------------------- |
-| `-s, --schema <file>` | Single schema file path                       |                                                    |
-| `--schema-dir <dir>`  | Schema directory for multi-file discovery     | `./dbschema`                                       |
-| `-o, --output <dir>`  | Output directory for generated code           | `./dbschema/disc-client`                           |
-| `-t, --target <type>` | Codegen target: `client`, `server`, or `both` | `client`                                           |
-| `--no-queries`        | Skip query builder generation                 | `false`                                            |
-| `--no-mutations`      | Skip mutation method generation               | `false`                                            |
-| `--no-client`         | Skip client library generation                | `false`                                            |
-| `--no-format`         | Skip output formatting                        | `false`                                            |
-| `--js`                | _Reserved:_ generate JavaScript output        | `false` (not implemented yet — tracked in backlog) |
+| Flag                  | Description                                    | Default                                            |
+| :-------------------- | :--------------------------------------------- | :------------------------------------------------- |
+| `-s, --schema <file>` | Single schema file path                        |                                                    |
+| `--schema-dir <dir>`  | Schema directory for multi-file discovery      | `./dbschema`                                       |
+| `-o, --output <dir>`  | Output directory for generated code            | `./dbschema/disc-client`                           |
+| `-t, --target <type>` | Codegen target: `client`, `server`, or `both`  | `client`                                           |
+| `--rust`              | Emit a Rust client crate instead of TypeScript | `false` (out: `./dbschema/disc-client-rust`)       |
+| `--go`                | Emit a Go client package instead of TypeScript | `false` (out: `./dbschema/disc-client-go`)         |
+| `--no-queries`        | Skip query builder generation                  | `false`                                            |
+| `--no-mutations`      | Skip mutation method generation                | `false`                                            |
+| `--no-client`         | Skip client library generation                 | `false`                                            |
+| `--no-format`         | Skip output formatting                         | `false`                                            |
+| `--js`                | _Reserved:_ generate JavaScript output         | `false` (not implemented yet — tracked in backlog) |
 
 ### Examples
 
@@ -373,7 +375,15 @@ disc codegen --target server
 
 # Generate types without query builders
 disc codegen --no-queries --no-mutations
+
+# Generate a Rust client crate
+disc codegen --rust
+
+# Generate a Go client package into a custom directory
+disc codegen --go --output ./internal/discclient
 ```
+
+`--rust` and `--go` replace the TypeScript output rather than adding to it -- run the command once per language. `--rust` wins if both are passed. The `--target`, `--no-queries`, `--no-mutations`, and `--no-client` toggles apply to every language. See [Codegen → Architecture & Language Targets](codegen.md#architecture--language-targets) for the generated crate/package layout and cardinality mappings.
 
 **Multi-file discovery:** When using `--schema-dir`, Disc discovers all `.disc` files in the directory and merges them into a unified schema before generating code.
 
@@ -1135,7 +1145,7 @@ When no `disc.toml` is found, commands fall back to the current directory name a
 | `disc migrate`                         | Generate and apply schema migrations              |
 | `disc serve`                           | Start the Disc server (includes PostgreSQL)       |
 | `disc shell`                           | Open interactive EdgeQL REPL                      |
-| `disc codegen`                         | Generate TypeScript types from schema             |
+| `disc codegen`                         | Generate a typed client (TypeScript, Rust, or Go) |
 | `disc watch`                           | Watch schema files and auto-rebuild               |
 | `disc ui`                              | Open admin UI in browser                          |
 | `disc build`                           | Compile to self-contained binary                  |
@@ -1154,3 +1164,64 @@ When no `disc.toml` is found, commands fall back to the current directory name a
 | `disc lsp`                             | Run the Disc language server (stdio JSON-RPC)     |
 | `disc pg log`                          | View PostgreSQL logs                              |
 | `disc pg upgrade --target-version <v>` | Upgrade PostgreSQL version                        |
+
+---
+
+## Programmatic API
+
+Every `disc <command>` invocation routes through one implementation (`cli/commands.ts`), and a stable subset of that surface is re-exported for use from Deno scripts -- CI pipelines, setup scripts, and test fixtures that need to drive Disc without spawning subprocesses.
+
+```typescript
+import { CLI } from "disc";
+
+await CLI.init({ name: "my-project", template: "basic" });
+await CLI.migrate({ schema: "./dbschema/default.disc" });
+await CLI.serve({ port: 5656, requireAuth: true });
+```
+
+### Available Functions
+
+| Function               | Options type       | Equivalent command |
+| :--------------------- | :----------------- | :----------------- |
+| `CLI.build(opts)`      | `BuildOptions`     | `disc build`       |
+| `CLI.deploy(opts)`     | `DeployOptions`    | `disc deploy`      |
+| `CLI.init(opts)`       | `InitOptions`      | `disc init`        |
+| `CLI.migrate(opts?)`   | (inline, below)    | `disc migrate`     |
+| `CLI.pgLog(opts)`      | `PgLogOptions`     | `disc pg log`      |
+| `CLI.pgUpgrade(opts)`  | `PgUpgradeOptions` | `disc pg upgrade`  |
+| `CLI.serve(opts)`      | `ServeOptions`     | `disc serve`       |
+| `CLI.shell(opts)`      | `ShellOptions`     | `disc shell`       |
+| `CLI.watch(opts)`      | `WatchOptions`     | `disc watch`       |
+
+Each Options interface is re-exported alongside its function, so editors resolve the shape without reaching into individual command modules:
+
+```typescript
+import { CLI, type ServeOptions } from "disc";
+
+const options: ServeOptions = { port: 5656, requireAuth: true };
+await CLI.serve(options);
+```
+
+`CLI.migrate()` takes an inline options bag rather than a named interface, because the binary entry point passes it the positional-argument shape:
+
+```typescript
+await CLI.migrate({
+  "backend-dsn": "postgres://user:pass@host:5432/disc", // optional
+  "dry-run": true,  // generate without applying
+  quiet: true,
+  schema: "./dbschema/default.disc",
+  "schema-dir": "./dbschema"
+});
+```
+
+All functions return `Promise<void>` and throw on failure -- there is no exit-code translation, so wrap calls in `try`/`catch` rather than checking a status.
+
+### What Is Not Exposed
+
+Commands that take the bag-style `CLIArgs` shape -- the `disc db` subcommands, `codegen`, `status`, `schema`, `admin`, `lsp` -- are intentionally left out. They target operator workflows where the binary's argv parsing is the right interface. To script those, exec the binary.
+
+### Stability
+
+The surface is a re-export, not a wrapper: adding a command here is non-breaking, while renaming or removing one is a breaking change. The binary's argv parser ([`cli/main.ts`](https://github.com/systemsoft/disc/blob/primary/cli/main.ts)) is unaffected by anything on this page -- if you exec `disc` from CI today, nothing about that path changes.
+
+(`cli/api.ts`, [gh/geldata#5911](https://github.com/geldata/gel/issues/5911))
