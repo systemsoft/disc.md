@@ -65,4 +65,7 @@
 - [Performance](performance.md) -- Indexing strategy, EXPLAIN diagnostics, parse/compile/EXPLAIN caches, pool tuning, key Prometheus gauges.
 - [Docker Compose](docker-compose.md) -- Self-hosted Disc + bundled PostgreSQL via `docker compose up`.
 - [Testing](testing.md) -- Running the suite, test categories, authoring new tests, env isolation, PG-backed tests.
+- [REST API](rest-api.md) -- Schema-derived REST endpoints for every object type, plus the OpenAPI 3.1 spec at `/api/openapi.json`.
+- [Error Codes](error-codes.md) -- The error hierarchy, protocol code map, and what each code means on the wire.
+- [Disc-Original Features](original-features.md) -- The deliberate departures from Gel that justify Disc as a fork rather than a port.
 - [Releasing](releasing.md) -- How releases are cut and published; the current version is tracked in `version.txt`.
