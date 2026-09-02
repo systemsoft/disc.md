@@ -405,7 +405,6 @@ When the object form doesn’t fit (deeply custom EdgeQL, schema features the fi
 A few patterns lower to compiler errors today and should fall back to raw EdgeQL until they land:
 
 - **A multi link reached _after_ a single link in the same chain** (e.g. `.author.posts.title`, where `author` is single and `posts` is multi). Chains that **start** with a multi link work to any depth — including a trailing single-FK hop — but when the first hop is single and a later hop is multi, the compiler can’t yet place the EXISTS.
-- **`filter` / `limit` / `offset` on a `select` link sub-shape.** Only `order_by` is supported inside a linked set today; narrowing or capping it (e.g. "the latest 5 videos") needs raw EdgeQL.
 - **Explicit `<-` backlink syntax** (e.g. `.<author[is Post]`). When the source type doesn’t pre-declare the back-link as a schema field, the explicit Gel syntax isn’t yet plumbed through the parser.
 
 These are tracked alongside the closed gaps in the test suite at `sdk/filter-compiler-edgeql.test.ts` and `compiler/compiler.test.ts`.
