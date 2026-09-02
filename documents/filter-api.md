@@ -127,6 +127,41 @@ await client.channel.filter({
 });
 ```
 
+### Narrowing a linked set
+
+A link sub-shape can carry its own `filter` to narrow the rows returned for that link. It takes the same object as a top-level filter — operators, implicit AND, combinators — but its fields are read against the **linked** type.
+
+```ts
+await client.channel.filter({
+  select: {
+    "*": true,
+    videos: {
+      "*": true,
+      filter: {
+        isDraft: 0n,
+        isPrivate: 0n,
+        isUnlisted: 0n
+      },
+      order_by: ["-created"]
+    }
+  },
+  slug: "music"
+});
+// → select Channel { *, videos: { * } filter .isDraft = <int64>$p0 and …
+//      order by .created desc } filter .slug = <str>$p3
+```
+
+**This is not the same as a sibling link key**, and the difference matters:
+
+| Where the predicate goes                              | What it constrains                     | Result                                                                     |
+| :---------------------------------------------------- | :------------------------------------- | :------------------------------------------------------------------------- |
+| `{ videos: { isDraft: 0n } }` — sibling key           | The **channel** (compiles to `EXISTS`) | Channels having at least one non-draft video, each with **all** its videos |
+| `{ select: { videos: { filter: { isDraft: 0n } } } }` | The **video set**                      | Every channel, each with only its non-draft videos                         |
+
+A sub-shape `filter` never drops the parent row — a channel with no matching videos still comes back, with an empty array. The two forms compose: use the sibling key to pick which channels you want, and the sub-shape `filter` to pick which videos come with them.
+
+A `filter` placed at the **top level** of `select` is ignored — root narrowing uses the filter object’s own fields.
+
 ### Ordering a linked set
 
 A link sub-shape can carry its own `order_by` to sort that link’s rows. Same convention as the top-level key: a string or array of strings, `-` prefix for descending.

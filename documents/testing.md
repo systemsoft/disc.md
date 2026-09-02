@@ -2,7 +2,7 @@
 
 Disc has a comprehensive test suite spanning the schema parser, EdgeQL compiler, migration engine, server protocol, auth, access policies, CLI, SDK, and the bundled-PostgreSQL machinery. This guide covers how to run the suite locally, how tests are organized, and how to author new tests in the patterns the codebase already uses.
 
-For implementation-level notes (skip-discipline, mock-vs-real, env isolation), see also the in-repo [tests/TESTING.md](../tests/TESTING.md).
+For implementation-level notes (skip-discipline, mock-vs-real, env isolation), see also the in-repo [tests/TESTING.md](https://github.com/systemsoft/disc/blob/primary/tests/TESTING.md).
 
 ---
 
@@ -40,7 +40,7 @@ DISC_PG_AUTO=1 deno task test:pg
 
 `DISC_PG_AUTO=1` tells the harness to auto-start a temp PostgreSQL on a random port (via `pg_ctl`) and tear it down at the end of the run. The harness searches for `pg_ctl` via `DISC_PG_BINARY_PATH`, Postgres.app, Homebrew, then `which pg_ctl`. To skip the auto-start and use a server you already have running, set `DATABASE_URL` instead.
 
-PG-backed tests live alongside their non-PG siblings — for instance `auth/pg-integration.test.ts` runs against a real PG, while `auth/provider.test.ts` is in-memory.
+PG-backed tests live alongside their non-PG siblings — for instance [`auth/pg-integration.test.ts`](https://github.com/systemsoft/disc/blob/primary/auth/pg-integration.test.ts) runs against a real PG, while [`auth/provider.test.ts`](https://github.com/systemsoft/disc/blob/primary/auth/provider.test.ts) is in-memory.
 
 ### Coverage
 
@@ -117,11 +117,11 @@ Deno.test("disc init surfaces PG download failures", async () => {
 });
 ```
 
-Older `cli/*.test.ts` files declare a module-local `mockInitCommand` that duplicates command logic. These are being phased out — see `cli/init.test.ts` for the current pattern (real `InitCommand` + injected dependencies).
+Older `cli/*.test.ts` files declare a module-local `mockInitCommand` that duplicates command logic. These are being phased out — see [`cli/init.test.ts`](https://github.com/systemsoft/disc/blob/primary/cli/init.test.ts) for the current pattern (real `InitCommand` + injected dependencies).
 
 ### Real database, not stubs (PG-backed tests)
 
-For PG-backed integration tests, hit a real PostgreSQL via `tests/pg-test-harness.ts`:
+For PG-backed integration tests, hit a real PostgreSQL via [`tests/pg-test-harness.ts`](https://github.com/systemsoft/disc/blob/primary/tests/pg-test-harness.ts):
 
 ```typescript
 import {
@@ -153,7 +153,7 @@ Mocking the database leads to drift: a mocked test passes, the real schema migra
 
 ### Structural pins
 
-When Disc’s behavior structurally diverges from Gel — either because Disc never had Gel’s bug, or because we ship a feature Gel doesn’t — the test that protects the divergence is a **structural pin** in `tests/gel-divergence-pins.test.ts`. Pins read the source code and assert invariants like "this file uses `Deno.listenTls`, never `Deno.serve`":
+When Disc’s behavior structurally diverges from Gel — either because Disc never had Gel’s bug, or because we ship a feature Gel doesn’t — the test that protects the divergence is a **structural pin** in [`tests/gel-divergence-pins.test.ts`](https://github.com/systemsoft/disc/blob/primary/tests/gel-divergence-pins.test.ts). Pins read the source code and assert invariants like "this file uses `Deno.listenTls`, never `Deno.serve`":
 
 ```typescript
 Deno.test("Gel #4172: binary protocol server uses TCP/TLS, not HTTP", async () => {
@@ -166,13 +166,13 @@ Deno.test("Gel #4172: binary protocol server uses TCP/TLS, not HTTP", async () =
 });
 ```
 
-A future PR that "modernizes" the binary server to `Deno.serve` will trip the pin and have to deliberately update the divergence record. See [`docs/future-triage.md`](future-triage.md) for the full Gel-issue map and `tests/gel-divergence-pins.test.ts` for the running list of pins.
+A future PR that "modernizes" the binary server to `Deno.serve` will trip the pin and have to deliberately update the divergence record. See [`docs/future-triage.md`](https://github.com/systemsoft/disc/blob/primary/docs/future-triage.md) for the full Gel-issue map and [`tests/gel-divergence-pins.test.ts`](https://github.com/systemsoft/disc/blob/primary/tests/gel-divergence-pins.test.ts) for the running list of pins.
 
 ---
 
 ## Env isolation
 
-CLI tests that mutate `Deno.env` MUST use `EnvMock` from `tests/test-utils.ts`. Setting `Deno.env.set` directly leaks across tests run in the same Deno process and causes order-dependent failures.
+CLI tests that mutate `Deno.env` MUST use `EnvMock` from [`tests/test-utils.ts`](https://github.com/systemsoft/disc/blob/primary/tests/test-utils.ts). Setting `Deno.env.set` directly leaks across tests run in the same Deno process and causes order-dependent failures.
 
 ```typescript
 import { EnvMock } from "../tests/test-utils.ts";
