@@ -46,7 +46,7 @@ type Person {
 };
 ```
 
-See [Schema → Indexes](schema.md#indexes) for the full SDL grammar (named indexes, annotated indexes, multi-property composites).
+See [Schema → Indexes](schema.md#:~:text=the%20same%20name.-,Indexes,-Indexes%20improve%20query) for the full SDL grammar (named indexes, annotated indexes, multi-property composites).
 
 ### Choosing what to index
 
@@ -54,7 +54,7 @@ Index the columns that appear in `filter`, `order by`, and `group by` clauses on
 
 ### Verifying an index is used
 
-Use [EXPLAIN](#explain) (below) to confirm PostgreSQL actually picks the index for the planned query. A `Seq Scan` on a column you indexed usually means the predicate isn’t sargable (e.g. `lower(email) = $1` against an index on `email` — switch to an expression index).
+Use [EXPLAIN](#:~:text=an%20expression%20index\).-,EXPLAIN,-EdgeQL%E2%80%99s%20analyze%20keyword) (below) to confirm PostgreSQL actually picks the index for the planned query. A `Seq Scan` on a column you indexed usually means the predicate isn’t sargable (e.g. `lower(email) = $1` against an index on `email` — switch to an expression index).
 
 ---
 
@@ -75,9 +75,7 @@ Seq Scan on user u  (cost=0.00..18.50 rows=1 width=64)
 
 ```typescript
 const plan = await client.explain(
-  `
-  select User { email, name } filter .email = <str>$email
-`,
+  `select User { email, name } filter .email = <str>$email`,
   { email: "ada@example.com" }
 );
 
@@ -148,7 +146,7 @@ Total Disc connections across all instances must stay below PostgreSQL’s `max_
 DISC_MAX_CONNECTIONS * disc_instance_count <= pg_max_connections - 5
 ```
 
-See [Production Deployment → Connection Pool Tuning](production-deployment.md#connection-pool-tuning) for a deployment-size matrix.
+See [Production Deployment → Connection Pool Tuning](production-deployment.md#:~:text=Connection%20Pool%20Tuning) for a deployment-size matrix.
 
 ### Pool tunables
 
@@ -181,7 +179,7 @@ Sustained `disc_pool_waiters > 0` is the canonical pool-pressure signal. When yo
 3. Add another Disc instance horizontally.
 4. Insert PgBouncer in transaction mode for very high concurrency.
 
-The full troubleshooting recipe lives in [Production Deployment → Connection Pool Exhaustion](production-deployment.md#connection-pool-exhaustion).
+The full troubleshooting recipe lives in [Production Deployment → Connection Pool Exhaustion](production-deployment.md#:~:text=Connection%20Pool%20Exhaustion).
 
 ---
 
@@ -215,7 +213,7 @@ A complete production dashboard should track these gauges over time:
 | `disc_process_memory_heap_used_bytes` | gauge   | Sustained growth = leak. Compare against heap_total.            |
 | `disc_uptime_seconds`                 | gauge   | Resets on every restart — pair with restart-count alerts.       |
 
-The `disc_tls_certificate_seconds_until_expiry` gauge from [Production Deployment → TLS](production-deployment.md#tls-certificate-hot-reload) is the alerting hook for cert renewal.
+The `disc_tls_certificate_seconds_until_expiry` gauge from [Production Deployment → TLS](production-deployment.md#:~:text=TLS%20Certificate%20Hot%2DReload) is the alerting hook for cert renewal.
 
 ---
 
@@ -232,7 +230,7 @@ Most performance work in Disc is one of: missing index, undersized pool, or cach
 
 ## Benchmark Suite
 
-Disc ships a `deno bench` suite in `benchmarks/` for measuring the pure-CPU stages of the pipeline -- parsing, compilation, codegen, schema diffing, and cache behaviour. Use it to catch regressions in the compiler when you change it; use the [EXPLAIN](#explain) and [Prometheus](#prometheus-gauges-to-watch) tooling above for query-level work against real data.
+Disc ships a `deno bench` suite in `benchmarks/` for measuring the pure-CPU stages of the pipeline -- parsing, compilation, codegen, schema diffing, and cache behaviour. Use it to catch regressions in the compiler when you change it; use the [EXPLAIN](#:~:text=an%20expression%20index\).-,EXPLAIN,-EdgeQL%E2%80%99s%20analyze%20keyword) and [Prometheus](#:~:text=Prometheus%20Gauges%20to%20Watch) tooling above for query-level work against real data.
 
 ```bash
 deno task bench
@@ -265,9 +263,9 @@ Benchmarks are plain `Deno.bench()` calls; the suite runs with `--allow-all --no
 
 ## See Also
 
-- [Schema → Indexes](schema.md#indexes) — full SDL syntax for indexes
+- [Schema → Indexes](schema.md#:~:text=the%20same%20name.-,Indexes,-Indexes%20improve%20query) — full SDL syntax for indexes
 - [Server Configuration](server.md) — cache / pool / metrics environment variables
 - [Production Deployment](production-deployment.md) — sizing, health checks, troubleshooting
-- [EdgeQL → EXPLAIN](edgeql.md#explain) — `analyze` semantics
+- [EdgeQL → EXPLAIN](edgeql.md#:~:text=other%20schema%20objects.-,EXPLAIN,-Analyze%20query%20execution) — `analyze` semantics
 - [Bundled PostgreSQL](bundled-postgres.md) — PG configuration knobs that feed the pool
 - [Testing](testing.md) — running the test suite the benchmarks share fixtures with

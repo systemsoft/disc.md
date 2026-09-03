@@ -99,7 +99,7 @@ Before deploying this compose file to a production host, edit it to:
      DISC_ENABLE_METRICS: "true"
    ```
 
-5. **Mount TLS certificates** (or terminate at the proxy — see [Production Deployment → Reverse Proxy](production-deployment.md#reverse-proxy-tls-termination-recommended-for-production)):
+5. **Mount TLS certificates** (or terminate at the proxy — see [Production Deployment → Reverse Proxy](production-deployment.md#:~:text=Reverse%20Proxy%20TLS%20Termination%20(Recommended%20for%20Production)):
 
    ```yaml
    environment:
@@ -216,7 +216,7 @@ services:
       start_period: 20s
 ```
 
-`/health/live` returns 200 as long as the process is up; `/health/ready` returns 503 when PostgreSQL is unreachable. See [Server → Health Check](server.md#get-health) for the full schema.
+`/health/live` returns 200 as long as the process is up; `/health/ready` returns 503 when PostgreSQL is unreachable. See [Server → Health Check](server.md#:~:text=valid%20start%20keyword\).-,GET%20/health,-Full%20health%20status) for the full schema.
 
 ---
 

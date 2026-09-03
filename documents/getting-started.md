@@ -69,7 +69,7 @@ deno task build
 sudo install ./disc /usr/local/bin/disc   # or wherever your PATH points
 ```
 
-This produces a binary that bundles whatever PG version is in `<DISC_HOME>/postgres/<version>/` if one is cached, otherwise the binary downloads PG on first run. For cross-compilation to a different platform, see [`disc build --platform`](cli.md#disc-build).
+This produces a binary that bundles whatever PG version is in `<DISC_HOME>/postgres/<version>/` if one is cached, otherwise the binary downloads PG on first run. For cross-compilation to a different platform, see [`disc build --platform`](cli.md#:~:text=npm%20run%20build-,disc%20build,-Compile%20Disc%20into).
 
 ---
 
@@ -332,7 +332,7 @@ The shell supports several backslash commands:
 | `\history`      | Show command history                         |
 | `\clear`        | Clear the screen                             |
 
-> The same table appears in [`docs/cli.md`](cli.md#disc-shell). Keep them in sync — column widths included — so a `git diff` instantly flags drift.
+> The same table appears in [`docs/cli.md`](cli.md#:~:text=drain%20on%20SIGTERM-,disc%20shell,-Open%20an%20interactive). Keep them in sync — column widths included — so a `git diff` instantly flags drift.
 
 ---
 

@@ -311,7 +311,7 @@ Migrating a production database is a five-step ritual:
    - Default-value mismatches on newly required columns.
    - Index-creation hangs on large tables (PostgreSQL’s `CREATE INDEX` takes an `ACCESS EXCLUSIVE` lock on the table; use `CREATE INDEX CONCURRENTLY` manually for hot tables, or split the migration).
 
-3. **Schedule the production window.** Disc serializes migrations on a per-database advisory lock (see [Advisory Lock + Lock Timeout](#advisory-lock--lock-timeout)) so a second `disc migrate` will queue rather than collide. Still, schedule away from peak traffic if the migration creates indexes or rewrites large tables.
+3. **Schedule the production window.** Disc serializes migrations on a per-database advisory lock (see [Advisory Lock + Lock Timeout](#:~:text=hasn%E2%80%99t%20shipped%20it.-,Advisory%20Lock%20%2B%20Lock%20Timeout,-Every%20disc%20migrate)) so a second `disc migrate` will queue rather than collide. Still, schedule away from peak traffic if the migration creates indexes or rewrites large tables.
 
 4. **Apply with `--auto-approve` and capture output.** In CI/CD pipelines:
 
@@ -397,11 +397,11 @@ pg_dump --format=custom --file=pre-migration-$(date -u +%Y%m%dT%H%M%SZ).dump \
 disc migrate --auto-approve
 ```
 
-Restore via `pg_restore` if rollback isn’t viable. See [CLI → disc db](cli.md#disc-db-create) for Disc-side database management.
+Restore via `pg_restore` if rollback isn’t viable. See [CLI → disc db](cli.md#:~:text=docker%20%2D%2Doutput%20./infra-,disc%20db%20create,-Create%20a%20new) for Disc-side database management.
 
 ## Workflow: Create → Review → Apply → Rollback
 
-The migration commands compose into a coherent narrative; full reference for each lives in the [CLI documentation](cli.md#disc-migrate). Here’s the lifecycle in one place:
+The migration commands compose into a coherent narrative; full reference for each lives in the [CLI documentation](cli.md#:~:text=with%20a%20hyphen.-,disc%20migrate,-Generate%20and%20apply). Here’s the lifecycle in one place:
 
 | Step     | Command                              | What it does                                                                             |
 | :------- | :----------------------------------- | :--------------------------------------------------------------------------------------- |
@@ -412,7 +412,7 @@ The migration commands compose into a coherent narrative; full reference for eac
 | Rollback | `disc migrate --rollback --force`    | Reverse the most recent migration via stored rollback SQL.                               |
 | Squash   | `disc migrate --squash`              | Combine accumulated migrations into one consolidated entry.                              |
 
-The full flag set (e.g., `--rollback-to`, `--squash-from`/`--squash-to`, `--unsafe`) is documented in [CLI → disc migrate](cli.md#disc-migrate). The narrative above maps each command back to a step in the production rollout — re-read that section before running anything against a production database.
+The full flag set (e.g., `--rollback-to`, `--squash-from`/`--squash-to`, `--unsafe`) is documented in [CLI → disc migrate](cli.md#:~:text=with%20a%20hyphen.-,disc%20migrate,-Generate%20and%20apply). The narrative above maps each command back to a step in the production rollout — re-read that section before running anything against a production database.
 
 ## Data Migrations
 
@@ -694,7 +694,7 @@ if (ddl.ok) {
 }
 ```
 
-The `classification` field carries the same `safe | unsafe | ambiguous` labels the CLI’s gate uses (see [Operation Classification](#operation-classification-safe--unsafe--ambiguous)). A programmatic caller can branch on it to either auto-apply, prompt the human, or refuse — whatever the surrounding tool needs.
+The `classification` field carries the same `safe | unsafe | ambiguous` labels the CLI’s gate uses (see [Operation Classification](#:~:text=Operation%20Classification%3A%20Safe%20/%20Unsafe%20/%20Ambiguous)). A programmatic caller can branch on it to either auto-apply, prompt the human, or refuse — whatever the surrounding tool needs.
 
 ### Safe vs Unsafe Gates from Code
 
@@ -916,7 +916,7 @@ const safety = engine.validateRollbackSafety(plan.value);
 
 ## Resolving Merge Conflicts ([gh/geldata#6085](https://github.com/geldata/gel/issues/6085))
 
-Disc tracks applied migrations in the `disc_migrations` database table, not as files on disk — there is no `dbschema/migrations/` for schema migrations to write to (data-migration `.data.ts` files are the exception; see [Data Migrations](#data-migrations)). This makes the merge-conflict story simpler than tools that ship file-based migrations: the only thing in your repo that two developers might both edit is the schema source (`dbschema/default.disc`) itself.
+Disc tracks applied migrations in the `disc_migrations` database table, not as files on disk — there is no `dbschema/migrations/` for schema migrations to write to (data-migration `.data.ts` files are the exception; see [Data Migrations](#:~:text=a%20production%20database.-,Data%20Migrations,-Schema%20(DDL)%20migrations)). This makes the merge-conflict story simpler than tools that ship file-based migrations: the only thing in your repo that two developers might both edit is the schema source (`dbschema/default.disc`) itself.
 
 **The git-level conflict.** When two branches change the same SDL file, you get a normal git merge conflict in `dbschema/default.disc`. Resolve it like any other source conflict — keep both additions, pick one rename, hand-merge type definitions — and commit the resolved schema.
 
@@ -994,7 +994,7 @@ The migration table tracks _what’s applied_ to the database, not _what’s in 
 
 ### Recipe: combining migrations + data transformations
 
-Schema changes and the data backfill that goes with them belong together. Disc’s data-migration system (see [Data Migrations](#data-migrations)) links a `*.data.ts` file to a schema migration by timestamp:
+Schema changes and the data backfill that goes with them belong together. Disc’s data-migration system (see [Data Migrations](#:~:text=a%20production%20database.-,Data%20Migrations,-Schema%20(DDL)%20migrations)) links a `*.data.ts` file to a schema migration by timestamp:
 
 ```bash
 disc migrate --create              # creates m20260507120000_add_user_status

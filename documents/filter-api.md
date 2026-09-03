@@ -176,7 +176,7 @@ await client.channel.filter({
 // → ... { *, videos: { * } order by .created desc }
 ```
 
-The ordering applies to that link only (it compiles to an `ORDER BY` inside the link’s `jsonb_agg`) and nests to any depth. An `order_by` placed at the **top level** of `select` is ignored — top-level result ordering uses the sibling `order_by` (see [Ordering, limit, offset](#ordering-limit-offset)). Capping a linked set (`limit`/`offset` on a sub-shape) is not yet supported; see [Not yet supported](#not-yet-supported).
+The ordering applies to that link only (it compiles to an `ORDER BY` inside the link’s `jsonb_agg`) and nests to any depth. An `order_by` placed at the **top level** of `select` is ignored — top-level result ordering uses the sibling `order_by` (see [Ordering, limit, offset](#:~:text=Ordering%2C%20limit%2C%20offset,-Reserved%20keys%20order_by)). Capping a linked set (`limit`/`offset` on a sub-shape) is not yet supported; see [Not yet supported](#:~:text=query%20builder.-,Not%20yet%20supported,-A%20few%20patterns).
 
 ---
 
@@ -269,7 +269,7 @@ await client.customer.filter({
 //       AND EXISTS (SELECT 1 FROM videos v WHERE v.channel_id = c.id AND v.is_draft = $1))
 ```
 
-This composes to any depth, and the hops can mix junction-table, backlink, and a trailing single-FK link freely. The one rule: the **first** hop must be a multi link — a chain that starts with a single link and only later reaches a multi link still needs raw EdgeQL (see [Not yet supported](#not-yet-supported)).
+This composes to any depth, and the hops can mix junction-table, backlink, and a trailing single-FK link freely. The one rule: the **first** hop must be a multi link — a chain that starts with a single link and only later reaches a multi link still needs raw EdgeQL (see [Not yet supported](#:~:text=query%20builder.-,Not%20yet%20supported,-A%20few%20patterns)).
 
 Sibling keys each become their own nested `EXISTS`, `AND`-ed together, so `{ channels: { videos: { isDraft: 0n, isPrivate: 0n } } }` matches a customer that has a channel with a non-draft video **and** a channel with a non-private video (standard EdgeQL set semantics — not necessarily the same video).
 
@@ -396,7 +396,7 @@ That object lowers to one EdgeQL query, one round-trip to PostgreSQL, with param
 When the object form doesn’t fit (deeply custom EdgeQL, schema features the filter compiler doesn’t yet cover):
 
 - **Raw EdgeQL:** `await client.query<T>("select X { ... } filter ...", { params })` is always available. The codegen is a layer on top, never in the way.
-- **Codegen-free runtime DSL:** `from("X").select({...}).filter(u => u.email.eq("x")).toEdgeQL()` is the Phase 1 builder for ad-hoc queries. See [Client SDK → Codegen-free query builder](client-sdk.md#codegen-free-query-builder).
+- **Codegen-free runtime DSL:** `from("X").select({...}).filter(u => u.email.eq("x")).toEdgeQL()` is the Phase 1 builder for ad-hoc queries. See [Client SDK → Codegen-free query builder](client-sdk.md#:~:text=Codegen%2Dfree%20query%20builder).
 
 ---
 

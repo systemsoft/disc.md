@@ -1,6 +1,6 @@
 # Error Codes
 
-> **Note:** This file is hand-maintained. When the error hierarchy in [`lib/errors.ts`](../lib/errors.ts) or the protocol code map in [`protocol/binary-server.ts`](../protocol/binary-server.ts) changes, update this document to match. Ports the request in [geldata/gel#6648](https://github.com/geldata/gel/issues/6648).
+> **Note:** This file is hand-maintained. When the error hierarchy in [`lib/errors.ts`](https://github.com/systemsoft/disc/blob/primary/lib/errors.ts) or the protocol code map in [`protocol/binary-server.ts`](https://github.com/systemsoft/disc/blob/primary/protocol/binary-server.ts) changes, update this document to match. Ports the request in [geldata/gel#6648](https://github.com/geldata/gel/issues/6648).
 
 Disc surfaces errors in two layers:
 
@@ -13,9 +13,9 @@ When you receive an error from a Disc client SDK, the `code` field is a protocol
 
 ## Table of Contents
 
-- [Disc Error Classes](#disc-error-classes)
-- [Gel Protocol Error Codes](#gel-protocol-error-codes)
-- [Class → Protocol Code Mapping](#class--protocol-code-mapping)
+- [Disc Error Classes](#:~:text=Protocol%20Code%20Mapping-,Disc%20Error%20Classes,-All%20errors%20inherit)
+- [Gel Protocol Error Codes](#:~:text=to%20AvailabilityError.-,Gel%20Protocol%20Error%20Codes,-These%20are%20the)
+- [Class → Protocol Code Mapping](#:~:text=AccessPolicyError-,Class%20%E2%86%92%20Protocol%20Code%20Mapping,-Performed%20by%20mapErrorToGelCode)
 
 ---
 
@@ -42,7 +42,7 @@ All errors inherit from the abstract base class `DiscError`. Every error carries
 
 ## Gel Protocol Error Codes
 
-These are the 32-bit codes Disc returns to binary-protocol clients. They match the Gel codes one-for-one so existing Gel SDKs work unchanged. Defined in [`protocol/binary-server.ts`](../protocol/binary-server.ts) as `GEL_ERROR_CODES`.
+These are the 32-bit codes Disc returns to binary-protocol clients. They match the Gel codes one-for-one so existing Gel SDKs work unchanged. Defined in [`protocol/binary-server.ts`](https://github.com/systemsoft/disc/blob/primary/protocol/binary-server.ts) as `GEL_ERROR_CODES`.
 
 The high byte is the family; subsequent bytes narrow within the family.
 
@@ -93,7 +93,7 @@ The high byte is the family; subsequent bytes narrow within the family.
 
 ## Class → Protocol Code Mapping
 
-Performed by `mapErrorToGelCode()` in [`protocol/binary-server.ts`](../protocol/binary-server.ts):
+Performed by `mapErrorToGelCode()` in [`protocol/binary-server.ts`](https://github.com/systemsoft/disc/blob/primary/protocol/binary-server.ts):
 
 | Disc class                                                  | Gel code                                   |
 | :---------------------------------------------------------- | :----------------------------------------- |

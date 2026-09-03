@@ -171,7 +171,7 @@ All server configuration can be set via environment variables. The `createServer
 | `DISC_BINARY_TLS_KEY`      | (none)  | TLS private key for the binary listener                                    |
 | `DISC_BINARY_TLS_KEY_ENV`  | (none)  | Name of an env var holding the PEM key                                     |
 
-> The `[server]` knobs `corsAllowCredentials`, `corsAllowedHeaders`, `corsAllowedMethods`, `corsExposeHeaders`, `corsMaxAge`, and `maxRequestBodyBytes` remain `disc.toml`-only — they’re project-level defaults rather than per-deployment knobs. See [Project Context Resolution](cli.md#project-context-resolution) for the full table. Secrets (JWT, bcrypt rounds) stay env/CLI-only and never live in `disc.toml`.
+> The `[server]` knobs `corsAllowCredentials`, `corsAllowedHeaders`, `corsAllowedMethods`, `corsExposeHeaders`, `corsMaxAge`, and `maxRequestBodyBytes` remain `disc.toml`-only — they’re project-level defaults rather than per-deployment knobs. See [Project Context Resolution](cli.md#:~:text=Project%20Context%20Resolution) for the full table. Secrets (JWT, bcrypt rounds) stay env/CLI-only and never live in `disc.toml`.
 
 ### ServerConfig Reference
 
@@ -260,7 +260,7 @@ The resolver lives in `lib/project-context.ts` (`resolveProjectContext` walks up
 | Rate limit    | (none)             | `DISC_RATE_LIMIT_RPM`           | `[server] rate_limit_rpm`                                        |
 | Binary port   | `--binary-port`    | `DISC_BINARY_PORT`              | (env/CLI only)                                                   |
 
-CLI flags always win over env vars, which always win over `disc.toml`. Secrets (JWT, TLS keys) deliberately have no `disc.toml` representation — they belong in env / a secrets manager, not in a tracked file. See [CLI → Project Context Resolution](cli.md#project-context-resolution) for the full `disc.toml` reference.
+CLI flags always win over env vars, which always win over `disc.toml`. Secrets (JWT, TLS keys) deliberately have no `disc.toml` representation — they belong in env / a secrets manager, not in a tracked file. See [CLI → Project Context Resolution](cli.md#:~:text=Project%20Context%20Resolution) for the full `disc.toml` reference.
 
 ---
 

@@ -6,7 +6,7 @@
 
 ## Quick Links
 
-| I want to...                         | Go to                                             |
+| I want to…                           | Go to                                             |
 | :----------------------------------- | :------------------------------------------------ |
 | Get up and running from scratch      | [Getting Started](getting-started.md)             |
 | Define types, links, and constraints | [Schema (SDL)](schema.md)                         |
@@ -24,9 +24,9 @@
 | Browse data in a web UI              | [Admin UI](admin-ui.md)                           |
 | Understand the bundled PostgreSQL    | [Bundled PostgreSQL](bundled-postgres.md)         |
 | Deploy to production                 | [Production Deployment](production-deployment.md) |
-| Deploy on Kubernetes with Helm       | [Production Deployment → Kubernetes (Helm)](production-deployment.md#kubernetes-helm) |
-| Send auth emails over SMTP           | [Auth → Email Delivery (SMTP)](auth.md#email-delivery-smtp) |
-| Drive Disc from a Deno script        | [CLI → Programmatic API](cli.md#programmatic-api) |
+| Deploy on Kubernetes with Helm       | [Production Deployment → Kubernetes (Helm)](production-deployment.md#:~:text=your%20specific%20infrastructure.-,Kubernetes%20(Helm),-Disc%20ships%20a) |
+| Send auth emails over SMTP           | [Auth → Email Delivery (SMTP)](auth.md#:~:text=pre%2Dresolved%20endpoints.-,Email%20Delivery%20(SMTP),-Verification%20links%2C%20password) |
+| Drive Disc from a Deno script        | [CLI → Programmatic API](cli.md#:~:text=Upgrade%20PostgreSQL%20version-,Programmatic%20API,-Every%20disc%20%3Ccommand) |
 | Tune queries, indexes, and caches    | [Performance](performance.md)                     |
 | Run Disc via Docker Compose          | [Docker Compose](docker-compose.md)               |
 | Run and write tests                  | [Testing](testing.md)                             |

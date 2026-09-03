@@ -8,23 +8,23 @@ Disc parses SDL into an abstract syntax tree, validates it, and generates the co
 
 ## Table of Contents
 
-- [Modules](#modules)
-- [Scalar Types](#scalar-types)
-- [Object Types](#object-types)
-- [Properties](#properties)
-- [Constraints](#constraints)
-- [Links](#links)
-- [Indexes](#indexes)
-- [Annotations](#annotations)
-- [Inheritance](#inheritance)
-- [Access Policies](#access-policies)
-- [Triggers](#triggers)
-- [Rewrite Rules](#rewrite-rules)
-- [Globals](#globals)
-- [Aliases](#aliases)
-- [Collection Types](#collection-types)
-- [Range Types](#range-types)
-- [Complete Example](#complete-example)
+- [Modules](#:~:text=Complete%20Example-,Modules,-Every%20declaration%20lives)
+- [Scalar Types](#:~:text=default%20module-,Scalar%20Types,-Disc%20supports%20all)
+- [Object Types](#:~:text=validated%20by%20Disc.-,Object%20Types,-Object%20types%20are)
+- [Properties](#:~:text=Admin%20extending%20Named%3B%0A%7D%3B-,Properties,-Properties%20define%20the)
+- [Constraints](#:~:text=not%20stored%20directly-,Constraints,-Constraints%20enforce%20data)
+- [Links](#:~:text=zA%2DZ0%2D9_%5D%2B%24%22\)%3B%0A%20%20%20%20%7D%3B%0A%20%20%7D%3B%0A%7D%3B-,Links,-Links%20define%20relationships)
+- [Indexes](#:~:text=the%20same%20name.-,Indexes,-Indexes%20improve%20query)
+- [Annotations](#:~:text=Email%20lookup%20index%22%3B%0A%20%20%20%20%7D%3B%0A%20%20%7D%3B%0A%7D%3B-,Annotations,-Annotations%20attach%20metadata)
+- [Inheritance](#:~:text=Non%2Dnegative%20total%22%3B%0A%20%20%20%20%7D%3B%0A%20%20%7D%3B%0A%7D%3B-,Inheritance,-Disc%20supports%20type)
+- [Access Policies](#:~:text=constraint%20max_len_value(100)%3B%0A%20%20%20%20%7D%3B%0A%20%20%7D%3B%0A%7D%3B-,Access%20Policies,-Access%20policies%20control)
+- [Triggers](#:~:text=using%20(global%20current_user_is_admin)%3B%0A%20%20%20%20%7D%3B%0A%20%20%7D%3B%0A%7D%3B-,Triggers,-Triggers%20execute%20logic)
+- [Rewrite Rules](#:~:text=the%20operation%20executes-,Rewrite%20Rules,-Rewrite%20rules%20automatically)
+- [Globals](#:~:text=on%20any%20modification.%22-,Globals,-Globals%20are%20session)
+- [Aliases](#:~:text=disc.global_default__current_user_id\).-,Aliases,-Aliases%20define%20named)
+- [Collection Types](#:~:text=or%20store%20data.-,Collection%20Types,-Arrays)
+- [Range Types](#:~:text=as%20JSON%20keys.-,Range%20Types,-Range%20types%20represent)
+- [Complete Example](#:~:text=required%20name%3A%20str%3B%0A%20%20%7D%3B%0A%7D%3B-,Complete%20Example,-Here%20is%20a)
 
 ---
 
@@ -329,7 +329,7 @@ A computed value can be a **named tuple** of aggregates — a common pattern for
 counts := ( videos := count(.<channel[is Video]), posts := count(.<channel[is Post]) );
 ```
 
-Computed properties are read-only outputs: they’re excluded from the `{ * }` splat (select them explicitly) and from insert/update. Fields of a named-tuple computed are filterable — see [Filter API → Computed field filters](filter-api.md#computed-field-filters).
+Computed properties are read-only outputs: they’re excluded from the `{ * }` splat (select them explicitly) and from insert/update. Fields of a named-tuple computed are filterable — see [Filter API → Computed field filters](filter-api.md#:~:text=Computed%20field%20filters).
 
 ### Property Qualifiers Summary
 
@@ -937,7 +937,7 @@ module default {
 
 Both `User` and `Post` inherit `created_at` and `updated_at` from `Timestamped`.
 
-> **Production semantics — per-subtype tables.** Disc’s migration engine emits one PG table per concrete subtype; abstract types have no physical table. `SELECT <Abstract>` lowers to `UNION ALL` across the subtype tables (each branch projects the abstract’s columns), and `IS Type` filters reduce to `__type__ = '<Type>'` over the union. The `__type__` discriminator column is added automatically to every type that participates in a hierarchy. See [EdgeQL → Polymorphic Queries](edgeql.md#polymorphic-queries) for how this affects compiled SQL and what polymorphic shape fields look like at runtime.
+> **Production semantics — per-subtype tables.** Disc’s migration engine emits one PG table per concrete subtype; abstract types have no physical table. `SELECT <Abstract>` lowers to `UNION ALL` across the subtype tables (each branch projects the abstract’s columns), and `IS Type` filters reduce to `__type__ = '<Type>'` over the union. The `__type__` discriminator column is added automatically to every type that participates in a hierarchy. See [EdgeQL → Polymorphic Queries](edgeql.md#:~:text=count(.posts)\)%2C%0A%20%20name%0A%7D%3B-,Polymorphic%20Queries,-Polymorphic%20queries%20let) for how this affects compiled SQL and what polymorphic shape fields look like at runtime.
 
 ### Concrete Inheritance
 

@@ -169,7 +169,7 @@ These three are the only globals Disc resolves directly from the request. The ca
 using (global current_user ?= .owner);
 ```
 
-> `current_user_id` is **not** a built-in. It is a [custom global](#custom-globals) you declare yourself (`global current_user_id: uuid;`) and is resolved at query time via PostgreSQL’s `current_setting()` mechanism — see below.
+> `current_user_id` is **not** a built-in. It is a [custom global](#:~:text=mechanism%20%E2%80%94%20see%20below.-,Custom%20Globals,-You%20can%20define) you declare yourself (`global current_user_id: uuid;`) and is resolved at query time via PostgreSQL’s `current_setting()` mechanism — see below.
 
 ### Custom Globals
 

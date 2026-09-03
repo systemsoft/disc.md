@@ -314,7 +314,7 @@ disc shell --schema ./dbschema/default.disc
 | `\history`      | Show command history                         |
 | `\clear`        | Clear the screen                             |
 
-> The same table appears in [`docs/getting-started.md`](getting-started.md#shell-commands).
+> The same table appears in [`docs/getting-started.md`](getting-started.md#:~:text=EdgeQL%20reference.-,Shell%20Commands,-The%20shell%20supports).
 > Keep them in sync — column widths included — so a `git diff`
 > instantly flags drift.
 
@@ -383,7 +383,7 @@ disc codegen --rust
 disc codegen --go --output ./internal/discclient
 ```
 
-`--rust` and `--go` replace the TypeScript output rather than adding to it -- run the command once per language. `--rust` wins if both are passed. The `--target`, `--no-queries`, `--no-mutations`, and `--no-client` toggles apply to every language. See [Codegen → Architecture & Language Targets](codegen.md#architecture--language-targets) for the generated crate/package layout and cardinality mappings.
+`--rust` and `--go` replace the TypeScript output rather than adding to it -- run the command once per language. `--rust` wins if both are passed. The `--target`, `--no-queries`, `--no-mutations`, and `--no-client` toggles apply to every language. See [Codegen → Architecture & Language Targets](codegen.md#:~:text=schema%20files%20change.-,Architecture%20%26%20Language%20Targets,-Codegen%20runs%20on) for the generated crate/package layout and cardinality mappings.
 
 **Multi-file discovery:** When using `--schema-dir`, Disc discovers all `.disc` files in the directory and merges them into a unified schema before generating code.
 

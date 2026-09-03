@@ -740,7 +740,7 @@ sudo systemd-analyze verify /etc/systemd/system/disc.service   # catch a bad set
 sudo systemctl enable --now disc
 ```
 
-The full provisioning flow — user, env file, directory ownership, and this normalization — is packaged as [`deploy/install-disc.sh`](../deploy/install-disc.sh), which honors `DISC_USER`/`DISC_PREFIX`/`DISC_PORT`/`DATABASE_URL` overrides. The manual steps below remain useful for understanding what it does.
+The full provisioning flow — user, env file, directory ownership, and this normalization — is packaged as [`deploy/install-disc.sh`](https://github.com/systemsoft/disc/blob/primary/deploy/install-disc.sh), which honors `DISC_USER`/`DISC_PREFIX`/`DISC_PORT`/`DATABASE_URL` overrides. The manual steps below remain useful for understanding what it does.
 
 Because `--no-modify-path` skips all shell-rc editing, `disc` will not be on any user’s `PATH` after this install — by design, since systemd invokes the binary by absolute path and the `disc` account is `nologin`. The daemon needs nothing further, but you’ll want the CLI on hand for admin commands (`disc migrate`, `disc shell`, `disc status`) and for step 5’s `disc deploy --format systemd`. Symlink it into a directory already on `PATH`:
 
@@ -852,7 +852,7 @@ The chart generates a JWT signing secret on first install and preserves it acros
 helm upgrade disc ./deploy/helm/disc -f my-values.yaml
 ```
 
-Rolling updates use `maxSurge: 1` / `maxUnavailable: 0`, so a healthy replica always serves during the rollout. `terminationGracePeriodSeconds` is 30 to match Disc's `shutdownDrainTimeout` (see [Graceful Shutdown](#graceful-shutdown)).
+Rolling updates use `maxSurge: 1` / `maxUnavailable: 0`, so a healthy replica always serves during the rollout. `terminationGracePeriodSeconds` is 30 to match Disc's `shutdownDrainTimeout` (see [Graceful Shutdown](#:~:text=public%20network%20interface-,Graceful%20Shutdown,-Disc%20handles%20SIGINT)).
 
 ### Common Values
 
@@ -873,7 +873,7 @@ Rolling updates use `maxSurge: 1` / `maxUnavailable: 0`, so a healthy replica al
 
 ### OAuth, SMTP, and Captcha
 
-These are configured at SDK-instantiation time in your own code rather than through `DISC_*` environment variables, so the chart cannot template them directly. To wire them into a cluster today, mount your config as a file via `extraVolumes` / `extraVolumeMounts` and reference it from your bootstrap script. See [Auth → Email Delivery (SMTP)](auth.md#email-delivery-smtp) for the config shape.
+These are configured at SDK-instantiation time in your own code rather than through `DISC_*` environment variables, so the chart cannot template them directly. To wire them into a cluster today, mount your config as a file via `extraVolumes` / `extraVolumeMounts` and reference it from your bootstrap script. See [Auth → Email Delivery (SMTP)](auth.md#:~:text=pre%2Dresolved%20endpoints.-,Email%20Delivery%20(SMTP),-Verification%20links%2C%20password) for the config shape.
 
 ---
 

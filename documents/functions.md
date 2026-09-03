@@ -282,7 +282,7 @@ select str_pad_end('hi', 6, '.');
 
 Returns true if the haystack string contains the needle substring.
 
-This function is overloaded -- when used with range arguments, it checks whether a range contains an element (see [Range Functions](#range-functions)).
+This function is overloaded -- when used with range arguments, it checks whether a range contains an element (see [Range Functions](#:~:text=equivalent%3A%20CONVERT_FROM(...%2C%20%27UTF8%27)-,Range%20Functions,-Range%20functions%20operate)).
 
 ```
 contains(haystack: str, needle: str) -> bool
@@ -1176,7 +1176,7 @@ select json_object_unpack(to_json('{"a": 1, "b": 2}'));
 
 ### `array_agg`
 
-Collects a set of values into an array. See [Aggregate Functions](#array_agg) for details.
+Collects a set of values into an array. See [Aggregate Functions](#:~:text=as%20avg\)-,Aggregate%20Functions,-Aggregate%20functions%20operate) for details.
 
 ---
 

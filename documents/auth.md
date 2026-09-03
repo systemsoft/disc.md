@@ -110,7 +110,7 @@ curl -X POST http://localhost:8080/auth/login \
 
 **Response (200 OK):** Same shape as the registration response.
 
-The login endpoint checks that the user account is active and, if email verification is required, that the email has been verified. Failed checks return the appropriate error code (see [Error Codes](#error-codes)).
+The login endpoint checks that the user account is active and, if email verification is required, that the email has been verified. Failed checks return the appropriate error code (see [Error Codes](#:~:text=secret%2Dkey%22%0A%7D%3B-,Error%20Codes,-Auth%20errors%20are)).
 
 ---
 
@@ -226,7 +226,7 @@ curl -X POST http://localhost:8080/auth/reset \
 }
 ```
 
-The endpoint always generates the token; delivery depends on configuration. Configure [`smtp` + `emailBaseUrl`](#email-delivery-smtp) and Disc mails the reset link itself. Without them, a `NoopMailer` is installed and the token is generated but never sent -- deliver it yourself via a [webhook](#webhooks) subscriber on `PasswordResetRequested`.
+The endpoint always generates the token; delivery depends on configuration. Configure [`smtp` + `emailBaseUrl`](#:~:text=pre%2Dresolved%20endpoints.-,Email%20Delivery%20(SMTP),-Verification%20links%2C%20password) and Disc mails the reset link itself. Without them, a `NoopMailer` is installed and the token is generated but never sent -- deliver it yourself via a [webhook](#:~:text=%236732\)-,Webhooks,-Fire%2Dand%2Dforget) subscriber on `PasswordResetRequested`.
 
 ---
 
@@ -462,7 +462,7 @@ The auth module creates and manages two tables automatically when initialized:
 
 ## Beyond Email + Password
 
-The endpoints in [API Endpoints](#api-endpoints) are the email-and-password core. Disc also ships a full authentication suite — TOTP-based MFA, magic links, recovery codes, WebAuthn passkeys, anonymous sessions, OAuth providers, branding, and webhooks. This section covers each.
+The endpoints in [API Endpoints](#:~:text=secret%20is%20provided.-,API%20Endpoints,-All%20auth%20endpoints) are the email-and-password core. Disc also ships a full authentication suite — TOTP-based MFA, magic links, recovery codes, WebAuthn passkeys, anonymous sessions, OAuth providers, branding, and webhooks. This section covers each.
 
 ### TOTP MFA
 
@@ -764,7 +764,7 @@ const config: AuthConfig = {
 
 `emailBaseUrl` is not optional in practice: tokens alone are useless without the route that consumes them, so **`smtp` configured without `emailBaseUrl` refuses to register the email listener** and logs an error at construction. This is deliberate -- surfacing the misconfig at boot beats discovering it when the first user requests a reset.
 
-The inverse is allowed: setting `emailBaseUrl` alone installs a `NoopMailer` that logs at INFO and returns a synthetic result. That lets you dry-run the wiring, and it keeps flows like `requestMagicLink()` working for deployments that deliver mail through a [webhook](#webhooks) subscriber instead of SMTP. ([gh/geldata#8224](https://github.com/geldata/gel/issues/8224))
+The inverse is allowed: setting `emailBaseUrl` alone installs a `NoopMailer` that logs at INFO and returns a synthetic result. That lets you dry-run the wiring, and it keeps flows like `requestMagicLink()` working for deployments that deliver mail through a [webhook](#:~:text=%236732\)-,Webhooks,-Fire%2Dand%2Dforget) subscriber instead of SMTP. ([gh/geldata#8224](https://github.com/geldata/gel/issues/8224))
 
 #### `SmtpConfig`
 
@@ -790,7 +790,7 @@ Not supported: DKIM/SPF/DMARC signing, attachments, XOAUTH2, connection pooling 
 
 #### Which events send mail
 
-The email listener subscribes to the same event stream as [webhooks](#webhooks) and mails on five of them:
+The email listener subscribes to the same event stream as [webhooks](#:~:text=%236732\)-,Webhooks,-Fire%2Dand%2Dforget) and mails on five of them:
 
 | Event                        | Email sent            |
 | :--------------------------- | :-------------------- |
@@ -804,7 +804,7 @@ The email listener subscribes to the same event stream as [webhooks](#webhooks) 
 
 #### Template overrides
 
-The built-in templates already interpolate [branding](#branding). To replace a body outright, supply a renderer per event -- any renderer left undefined falls back to the built-in:
+The built-in templates already interpolate [branding](#:~:text=templates.ts\)-,Branding,-Override%20the%20%22from). To replace a body outright, supply a renderer per event -- any renderer left undefined falls back to the built-in:
 
 ```typescript
 const config: AuthConfig = {
@@ -830,7 +830,7 @@ Every renderer returns `{ html, subject, text }`. The context it receives carrie
 | `passwordReset` | `baseUrl`, `resetToken`                        |
 | `verification`  | `baseUrl`, `verificationToken`                 |
 
-For `magicLink`, `link` is pre-built by the listener -- it already reflects [`magicLinkUrlTemplate`](#custom-url-template) when one is configured, so prefer `ctx.link` over reconstructing the URL yourself.
+For `magicLink`, `link` is pre-built by the listener -- it already reflects [`magicLinkUrlTemplate`](#:~:text=covers%20both%20flows.-,Custom%20URL%20template,-The%20default%20link) when one is configured, so prefer `ctx.link` over reconstructing the URL yourself.
 
 #### Using the mailer directly
 
@@ -1082,7 +1082,7 @@ See [Production Deployment](production-deployment.md) for full TLS configuration
 
 **Disable open registration when appropriate.** If your application manages user creation through an admin flow, set `allowRegistration: false` to prevent unauthorized account creation.
 
-**Do not expose reset tokens in responses.** In production, the reset token should be delivered via email, not returned in the HTTP response. The current implementation returns success without exposing the token. Configure [SMTP](#email-delivery-smtp) so the built-in listener mails the link.
+**Do not expose reset tokens in responses.** In production, the reset token should be delivered via email, not returned in the HTTP response. The current implementation returns success without exposing the token. Configure [SMTP](#:~:text=pre%2Dresolved%20endpoints.-,Email%20Delivery%20(SMTP),-Verification%20links%2C%20password) so the built-in listener mails the link.
 
 ---
 
@@ -1091,4 +1091,4 @@ See [Production Deployment](production-deployment.md) for full TLS configuration
 - [Access Policies](access-policies.md) -- row-level security powered by auth context
 - [Server Configuration](server.md) -- full server config reference
 - [Production Deployment](production-deployment.md) -- TLS, rate limiting, and hardening
-- [Production Deployment → Kubernetes (Helm)](production-deployment.md#kubernetes-helm) -- mounting OAuth / SMTP / captcha config in a cluster
+- [Production Deployment → Kubernetes (Helm)](production-deployment.md#:~:text=your%20specific%20infrastructure.-,Kubernetes%20(Helm),-Disc%20ships%20a) -- mounting OAuth / SMTP / captcha config in a cluster

@@ -164,7 +164,7 @@ Reusable from custom Svelte routes:
 {#if data}<pre>{JSON.stringify(data, null, 2)}</pre>{/if}
 ```
 
-Disabled via `disc.toml` `[server] enable_data_watch = false`, env `DISC_ENABLE_DATA_WATCH=false` (see [Server → Admin Features env vars](server.md#admin-features)), or `ServerConfig.enableDataWatch: false`. When disabled, both the trigger bootstrap and the SSE endpoint are skipped — production deployments that don’t surface the admin UI can opt out to avoid the per-mutation log row.
+Disabled via `disc.toml` `[server] enable_data_watch = false`, env `DISC_ENABLE_DATA_WATCH=false` (see [Server → Admin Features env vars](server.md#:~:text=multi%2Ddatabase%20routing-,Admin%20Features,-VARIABLE)), or `ServerConfig.enableDataWatch: false`. When disabled, both the trigger bootstrap and the SSE endpoint are skipped — production deployments that don’t surface the admin UI can opt out to avoid the per-mutation log row.
 
 ---
 

@@ -287,7 +287,7 @@ select Post { age_days := <int64>(datetime_current() - .created_at) / 86400 };
 explain analyze select User filter .email = "ada@example.com";
 ```
 
-Returns the underlying PostgreSQL plan. Use it to verify an index is used. See [Performance → EXPLAIN](performance.md#explain).
+Returns the underlying PostgreSQL plan. Use it to verify an index is used. See [Performance → EXPLAIN](performance.md#:~:text=an%20expression%20index\).-,EXPLAIN,-EdgeQL%E2%80%99s%20analyze%20keyword).
 
 ## REPL meta-commands
 
