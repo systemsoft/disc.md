@@ -395,7 +395,7 @@ That object lowers to one EdgeQL query, one round-trip to PostgreSQL, with param
 
 When the object form doesn’t fit (deeply custom EdgeQL, schema features the filter compiler doesn’t yet cover):
 
-- **Raw EdgeQL:** `await client.query<T>("select X { ... } filter ...", { params })` is always available. The codegen is a layer on top, never in the way.
+- **Raw EdgeQL:** `await client.query<T>("select X { ... } filter ...", { params })` is always available. The codegen is a layer on top, never in the way. Two things the builders cannot express yet and raw EdgeQL can: observing exactly which rows a mutation touched (`select (update X filter … set { … }) { id }`, the compare-and-swap idiom — see [EdgeQL → Selecting over a mutation](edgeql.md#:~:text=Selecting%20over%20a%20mutation)) and a bulk insert from a JSON array in one statement ([EdgeQL → Bulk insert from JSON](edgeql.md#:~:text=Bulk%20insert%20from%20JSON)). With raw queries, name `bytes` fields to revive: `client.query(q, vars, { revive: { bytes: ["content"] } })` — the generated builders do this for you.
 - **Codegen-free runtime DSL:** `from("X").select({...}).filter(u => u.email.eq("x")).toEdgeQL()` is the Phase 1 builder for ad-hoc queries. See [Client SDK → Codegen-free query builder](client-sdk.md#:~:text=Codegen%2Dfree%20query%20builder).
 
 ---

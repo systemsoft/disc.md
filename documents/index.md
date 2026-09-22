@@ -31,6 +31,7 @@
 | Run Disc via Docker Compose          | [Docker Compose](docker-compose.md)               |
 | Run and write tests                  | [Testing](testing.md)                             |
 | Cut and publish a release            | [Releasing](releasing.md)                         |
+| Upgrade and see what changed         | [Upgrading](upgrading.md)                         |
 
 ---
 
@@ -72,3 +73,4 @@
 - [Error Codes](error-codes.md) -- The error hierarchy, protocol code map, and what each code means on the wire.
 - [Disc-Original Features](original-features.md) -- The deliberate departures from Gel that justify Disc as a fork rather than a port.
 - [Releasing](releasing.md) -- How releases are cut and published; the current version is tracked in `version.txt`.
+- [Upgrading](upgrading.md) -- Behaviour changes between releases: wire-format, query-language and SDK changes, and what to do about them.

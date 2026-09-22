@@ -130,7 +130,7 @@ Parses the schema, diffs against the current state, generates DDL, and executes 
 disc migrate --create
 ```
 
-Generates the migration plan and shows the DDL that would be executed, but does not apply it to the database. Use this to review changes before committing.
+Generates the migration plan and shows the DDL that would be executed, but does not apply it to the database. Use this to review changes before committing. The preview includes any [index backfill](#:~:text=Index%20backfill) — `CREATE … INDEX IF NOT EXISTS` statements for declared indexes the database is missing — which `--dry-run` cannot see (it has no database connection).
 
 ### Preview (Dry Run)
 
@@ -578,7 +578,7 @@ Global modifications are handled as drop + add.
 
 ### Index Operations
 
-The differ compares the index sets on a surviving type and emits standalone index operations:
+The differ compares the index sets on a surviving type and emits standalone index operations. For a newly created type, its declared indexes are emitted as `CreateIndex` operations right after the `CreateType`. Both `index on (…)` members and type-level `constraint exclusive on (…)` members count as indexes; the latter are unique indexes named `uk_<table>_<col1>_<col2>…` (see [Schema → Type-level `exclusive`](schema.md#:~:text=Type%2Dlevel%20exclusive)).
 
 | Operation     | Description                                                                                                          |
 | :------------ | :------------------------------------------------------------------------------------------------------------------- |
@@ -591,6 +591,23 @@ The differ compares the index sets on a surviving type and emits standalone inde
 - **Unchanged** index → no operation.
 
 Indexes are keyed by name plus their ordered column list (and uniqueness), so reordering columns or toggling `unique` counts as a change. All four index operations are classified `safe`.
+
+Index columns are resolved through the type (and the types it extends): a single link resolves to its `<link>_id` column. A non-unique single-column index on a single link is skipped, because the foreign-key column already carries the auto-created `idx_<table>_<link>_id` index and a second one would collide by name. Multi links, computed members and multi-step paths are a planning error (`Failed to plan migration: …`), as is a type-level `exclusive`/`index on` on a type that has subtypes. Index names longer than PostgreSQL’s 63 bytes are shortened with an 8-hex-character hash suffix; names that fit are never changed.
+
+### Index backfill
+
+The differ compares the **stored** schema with the new one and never introspects the database. A deployment whose stored baseline already declares an index that older Disc versions never created (type-level `constraint exclusive on (…)` was parsed but not enforced before; `index on` in a new type was silently dropped) diffs to nothing. So every `disc migrate` also reads `pg_indexes` for the current schema, and appends a `CreateIndex { ifNotExists: true }` operation for each declared type-level index it cannot find. These run inside the normal migration transaction, appear in the history and in the `--create` preview, and roll back with `DROP INDEX`; a second run finds the names and appends nothing.
+
+If existing rows violate a unique index being backfilled (or diffed in), the migration fails before anything is applied, with a message that names the type and the declaration, PostgreSQL’s detail and a query to find the offenders:
+
+```plain
+Cannot create unique index "uk_program_crew_id_name": existing rows of type 'Program' violate
+'constraint exclusive on ((.crew, .name))' (Key (crew_id, name)=(…) is duplicated.). Find the duplicates with:
+  SELECT crew_id, name, count(*) FROM program WHERE crew_id IS NOT NULL AND name IS NOT NULL GROUP BY crew_id, name HAVING count(*) > 1;
+Remove or merge them, then re-run the migration. Nothing was applied.
+```
+
+Each backfilled index builds under a write lock (migrations run in a transaction, so `CONCURRENTLY` is not used); expect a pause on large tables. Two edges: the `disc serve` “run disc migrate” hint and `--dry-run` cannot see a pending backfill (only `--create` can), and the drift-reconciliation path that skips existing tables also skips their new index statements until the next `disc migrate`.
 
 ## Migration Tracking
 

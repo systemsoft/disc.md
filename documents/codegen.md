@@ -165,6 +165,7 @@ Key rules:
 - Required properties have no `?` suffix. Optional properties have `?` and include `| null`.
 - Links use the target type’s interface name directly. Multi-links use an array type.
 - Inherited types use `extends` in the interface declaration.
+- `bytes` properties are real `Uint8Array`s at runtime: the generated builders pass `Uint8Array` (or Node `Buffer`) values through as base64 on the wire and revive `bytes` fields in results — including through links — with `reviveTyped(data, Builder._typeInfo)`. See [Client SDK → Bytes](client-sdk.md#:~:text=Bytes).
 
 ## Property Type Mappings
 
@@ -364,10 +365,10 @@ export class UserQueryBuilder {
     return await this.client.query<Types.User>(query, { id, ...data });
   }
 
-  /** Delete User by ID */
-  async delete(id: string): Promise<Types.User> {
+  /** Delete User by ID. Resolves to the affected-row count, `{ deleted: 0 | 1 }`. */
+  async delete(id: string): Promise<{ deleted: number }> {
     const query = `delete User filter .id = <uuid>$id`;
-    return await this.client.query<Types.User>(query, { id });
+    return await this.client.query<{ deleted: number }>(query, { id });
   }
 
   /** Count User objects */
@@ -537,8 +538,10 @@ const users = await client.user.select();
 const user = await client.user.selectById("some-uuid");
 const newUser = await client.user.insert({ email: "a@b.com", name: "Ada" });
 await client.user.update(newUser.id, { name: "Ada B." });
-await client.user.delete(newUser.id);
+const { deleted } = await client.user.delete(newUser.id); // { deleted: 0 | 1 }
 ```
+
+`delete()` resolves to the affected-row count, not the deleted object; to read the row back, use raw EdgeQL: `client.query("select (delete User filter .id = <uuid>$id) { id, email }", { id })`. A duplicate on an `exclusive` constraint in `insert()`/`update()` throws `UniqueViolationError`; every non-OK response is an error (see [Client SDK → Error Handling](client-sdk.md#:~:text=Error%20Hierarchy)). The typed client is a `DiscClient` subclass, so `client.withToken(serviceToken)` returns a typed client with its builders intact.
 
 ## Multi-Module Schemas
 

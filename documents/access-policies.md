@@ -25,6 +25,14 @@ disc serve
 
 Access policies work best with [authentication](auth.md) enabled, since most policies reference the authenticated user. However, you can use policies without auth for public/anonymous access patterns.
 
+Policies are enforced by the `full` protocol handler, which is the default for `disc serve` and for `new DiscServer({})`. The `simple` handler (an explicit opt-in via `DISC_PROTOCOL=simple` / `protocol: "simple"`) enforces nothing.
+
+**Where policies apply.** Policies reach every mutation wherever it sits in the query — a bare `update`, a `with u := (update …) select u`, the operand of `select (delete …) { id }`, the body of `for … union (insert …)` (including the [bulk insert](edgeql.md#:~:text=Bulk%20insert%20from%20JSON) form), the CTE a multi-link write compiles to, and the statement under `explain analyze`. An insert or delete a policy forbids is a compile error before any SQL runs; an update or delete a policy restricts gets the policy predicate inside its own `WHERE`. Policies are looked up by the type’s declared name, so `select default::Doc` is filtered exactly like `select Doc`. Read-only mode (`DISC_READ_ONLY`) likewise rejects nested writes. Two current gaps: select policies apply to the top-level type only (a nested shape or a `with d := (select Doc) select d` binding is not filtered), and a `select (update …) { … }` returns the rows the caller may *update* without applying the select policy.
+
+**Upsert and row-level update policies.** `insert … unless conflict on … else (update …)` on a type whose update policy has a row predicate is a compile error (`Upsert (unless conflict … else update) is not supported on 'T' because it has a row-level update policy. Use a separate update, or the service credential.`). An unconditional allow, a denial (also an error) and the service credential are unaffected. This is fail-closed on purpose: the `ON CONFLICT … DO UPDATE` branch cannot yet carry the predicate.
+
+**Callers without an identity.** Queries over a WebSocket and over the [binary protocol](server.md#:~:text=Binary%20Protocol) compile as an anonymous caller: no JWT is read there, so a policy that depends on `global current_user` denies them, and the service credential is not honored. Use `POST /query` for anything that depends on who is asking.
+
 ---
 
 ## SDL Syntax
@@ -280,9 +288,54 @@ const evaluator = new AccessEvaluator({
 
 ---
 
+## Service credential
+
+A trusted backend — your own API server, a job runner, a migration script — usually needs to read and write everything and authorize in its own code. Rather than minting a user JWT for it (which needs a live session row and expires), configure a **service credential**: a static token the server knows, presented as a bearer.
+
+```bash
+# At least 32 bytes; the server refuses to start with a shorter one.
+export DISC_SERVICE_TOKEN="$(openssl rand -base64 48)"
+disc serve --enable-access-policies
+
+# Or on the command line — visible in `ps`, so prefer the env var.
+disc serve --service-token "$TOKEN"
+```
+
+```bash
+curl -X POST http://127.0.0.1:5656/query \
+  -H "Authorization: Bearer $DISC_SERVICE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "select Locked { id }"}'
+```
+
+What the server does with it:
+
+- **Identity.** A request that presents the token resolves to `userId` `"service"`, roles `["service"]`, with **every** access policy bypassed — select, insert, update and delete, including nested, `with`-form, `select (mutation)` and bulk-insert mutations. No `X-Disc-Apply-Access-Policies` header is needed. Inside a service query, `global current_user` is the string `"service"`, so do not compare it with a uuid column.
+- **Only the header.** The token is matched on `Authorization: Bearer <token>` only — never a cookie, URL parameter or body field. A wrong bearer is not the service: it falls through to ordinary JWT verification, so a near-miss is simply anonymous (or `401` under `DISC_REQUIRE_AUTH=true`). Comparison is a constant-time compare of SHA-256 digests.
+- **Scope.** `POST /query` and `POST /transaction/{begin,commit,rollback}` only. REST (`/api/*`), WebSocket, `/schema`, `/stats`, extension routes and the binary listener do **not** honor it; there it is an invalid JWT.
+- **Auth on or off.** It works with auth disabled (`DISC_ENABLE_AUTH=false`, or no JWT secret) and with `DISC_REQUIRE_AUTH=true` — the service needs no JWT and is accepted even when no auth provider is configured.
+- **Transactions.** A transaction the service opens is owned by `"service"`: a user cannot query into, commit or roll it back, and the service cannot drive a user’s.
+- **Configuration.** `DISC_SERVICE_TOKEN` or `--service-token` only; it is deliberately not a `disc.toml` key because that file is committed. Minimum 32 bytes (UTF-8), else `disc serve` exits with `DISC_SERVICE_TOKEN (--service-token) must be at least 32 bytes; got N`. The server warns at boot when a token is set but `DISC_ENABLE_ACCESS_POLICIES` is off, because the bypass then means nothing. SIGHUP does not rotate or drop it; restart to change it.
+- **Observability.** `/stats` → `queries.bypassed` counts `/query` requests run with policies bypassed (service or admin header). A debug log line `Service credential query` carries a query hash and request id. The token never appears in `/config`, `/stats`, `/`, logs or error messages.
+- **Transport.** It is a long-lived bearer with full bypass: send it only over TLS or a loopback/private interface (`DISC_HOST=127.0.0.1`), keep it out of browsers, and rotate by restart. See [Production Deployment](production-deployment.md#:~:text=Service%20credential%20for%20backends).
+
+From the SDK, derive a client that carries the token without touching the credentials of the client your users’ requests go through:
+
+```typescript
+const service = client.withToken(Deno.env.get("DISC_SERVICE_TOKEN")!);
+
+await service.transaction(async tx => {
+  await tx.query("insert Locked { name := <str>$n }", { n: "audit" });
+});
+```
+
+`withToken(token)` and `withHeaders(headers)` return derived clients sharing base URL, timeout, headers, retries, logger, schema epoch and generated builders — but not credentials — and a `Transaction` uses the credential of the client that opened it. This is preferred over `setAuthToken` on a shared client.
+
+---
+
 ## Per-request bypass (admin-only)
 
-Admin-role callers can opt out of policy injection on a single request via the `X-Disc-Apply-Access-Policies: false` header. This mirrors Gel’s session-level `apply_access_policies := false` and is useful for support tooling that needs to read across tenants, or admin scripts that intentionally want unfiltered output.
+Admin-role callers can opt out of policy injection on a single request via the `X-Disc-Apply-Access-Policies: false` header. This mirrors Gel’s session-level `apply_access_policies := false` and is useful for support tooling that needs to read across tenants, or admin scripts that intentionally want unfiltered output. For a backend that always needs unfiltered access, use the [service credential](#:~:text=Service%20credential) instead.
 
 ```bash
 curl -X POST http://localhost:5656/query \
@@ -292,13 +345,13 @@ curl -X POST http://localhost:5656/query \
   -d '{"query":"SELECT User { name, email }"}'
 ```
 
-**Gating.** The HTTP layer reads the JWT’s `roles` claim and only honors the header when `roles` includes `"admin"`. Non-admin callers who set the header have it silently dropped at the boundary — there is no way for a regular user to escalate by setting the header.
+**Gating.** The HTTP layer reads the JWT’s `roles` claim and only honors the header when `roles` includes `"admin"` or `"superuser"` (the role `disc admin create-superuser` grants). Other callers who set the header have it silently dropped at the boundary — there is no way for a regular user to escalate by setting the header. Bypassed requests are counted in `/stats` → `queries.bypassed`.
 
 **Cache safety.** The compilation cache key embeds the bypass flag so a bypassed result is never served to a non-bypassed call (and vice versa). Two requests with the same EdgeQL but different bypass state compile independently.
 
 **Truthy values.** The header value is normalized: `false`, `0`, and `no` (case-insensitive, trimmed) all opt out. Any other value (including absent, empty, `true`, `1`) keeps policies enforced.
 
-The implementation lives in `server/http-handlers.ts:handle_query` (header parsing + role gate) and `compiler/compiler.ts:applyAccessControl` (short-circuit on `AccessContext.bypass`). ([gh/geldata#6358](https://github.com/geldata/gel/issues/6358))
+The implementation lives in `server/http-handlers.ts:handle_query` (header parsing + role gate) and `compiler/compiler.ts` (`applyAccessControl` for selects, `mutationAccessCondition` inside the insert/update/delete compilers; both short-circuit on `AccessContext.bypass`). ([gh/geldata#6358](https://github.com/geldata/gel/issues/6358))
 
 ## Per-policy disable (admin-only) ([gh/geldata#6432](https://github.com/geldata/gel/issues/6432) slice 3)
 
@@ -318,7 +371,7 @@ curl -X POST http://localhost:5656/edgeql \
   -d '{"query": "select Doc { id, title, author: { name } }"}'
 ```
 
-Same admin-only gate as the apply-bypass header: a non-admin caller setting the header has it dropped at the boundary, never reaching the compiler. The compilation cache key embeds the disabled set so a disabled-policies call can’t share a cache slot with a regular call.
+Same gate as the apply-bypass header (`admin` or `superuser` role): any other caller setting the header has it dropped at the boundary, never reaching the compiler. The compilation cache key embeds the disabled set so a disabled-policies call can’t share a cache slot with a regular call.
 
 This is the surgical alternative to the all-or-nothing `X-Disc-Apply-Access-Policies: false` bypass — useful when you’re isolating one policy at a time during testing or debugging an authorization regression.
 
@@ -441,9 +494,16 @@ FROM posts p
 WHERE (p.published = true) AND (p.author_id = 'd290f1ee-...')
 ```
 
-For UPDATE and DELETE queries, conditions restrict which rows can be modified. If a policy denies the operation entirely, the query raises an error rather than silently affecting zero rows.
+For UPDATE and DELETE queries, conditions restrict which rows can be modified. If a policy denies the operation entirely, the query raises an error rather than silently affecting zero rows. The predicate is added inside the mutation itself, so it travels with the statement into a `with` binding, a `select (update …) { … }` wrapper or a multi-link CTE:
 
-For INSERT queries, the evaluator checks the policy condition against the request context. If the insert is denied, an error is raised before the SQL executes.
+```sql
+-- select (update Doc filter .id = <uuid>$id set { title := "x" }) { id }
+WITH m AS (
+  UPDATE doc SET title = 'x' WHERE (owner_id = 'd290f1ee-...') AND (doc.id = CAST($1 AS uuid)) RETURNING *
+) SELECT jsonb_build_object('id', m_1.id) FROM m AS m_1
+```
+
+For INSERT queries, the evaluator checks the policy condition against the request context. If the insert is denied, an error is raised before the SQL executes — also for an insert nested in `for … union (insert …)`.
 
 ---
 
@@ -638,6 +698,9 @@ The following features are not yet implemented:
 - **Policy composition across inheritance** -- policies on abstract types are not yet automatically inherited by concrete subtypes.
 - **Audit logging** -- the `enableAudit` config flag is accepted but audit logging is not yet implemented.
 - **WITH CHECK on INSERT/UPDATE** -- `with check (...)` clauses are parsed by the SDL grammar (`schema/parser.ts`), forwarded to the runtime policy (`access/policy-adapter.ts`), and emitted as `WITH CHECK` on the generated PostgreSQL RLS policy (`access/sql-injector.ts`). Native RLS enforcement requires the migration-engine RLS wiring listed above.
+- **Select policies on nested shapes and `with`-bound selects** -- the select policy is applied to the top-level type only; `with d := (select Doc) select d` and nested link shapes are not filtered, and `select (update …) { … }` returns what the caller may update without the select policy.
+- **Upsert with a row-level update policy** -- `unless conflict … else (update …)` is a compile error on such types (see above); use a separate `update` or the service credential.
+- **Identity over WebSocket and the binary protocol** -- both compile as anonymous; there is no way to carry a Disc user or the service credential over them yet.
 
 ---
 

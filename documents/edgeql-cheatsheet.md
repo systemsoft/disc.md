@@ -80,6 +80,26 @@ unless conflict on .email;
 insert User { email := "ada@example.com", name := "Ada" }
 unless conflict on .email
 else (update User set { name := "Ada" });
+
+# Composite / link conflict target (matches `constraint exclusive on ((.program, .name))`)
+insert GitRef { program := <Program><uuid>$p, name := <str>$n, target := <str>$t }
+unless conflict on ((.program, .name));
+
+# Create-if-absent, observed: [] on conflict, [{ id }] on insert
+select (insert GitRef { program := <Program><uuid>$p, name := <str>$n, target := <str>$t }
+        unless conflict on ((.program, .name))) { id };
+
+# Bulk insert from a JSON array — one statement, ids of the rows actually inserted
+with rows := <json>$rows
+for item in json_array_unpack(rows)
+union (
+  insert GitObject {
+    program := <Program><uuid>$p,
+    object_id := <str>item['object_id'],
+    size := <int64>item['size'],
+    content := std::base64_decode(<str>item['content'])
+  } unless conflict on ((.program, .object_id))
+);
 ```
 
 ## UPDATE
@@ -111,6 +131,14 @@ set { author := (select User filter .email = "new@example.com") };
 
 # Update all matching
 update User filter .active = false set { archived := true };
+
+# Filter through a single link (no join)
+update GitRef filter .program.id = <uuid>$p and .name = <str>$n set { target := <str>$t };
+
+# Compare-and-swap: [] when $old is stale, [{ id }] when the row was updated
+select (update GitRef
+        filter .program.id = <uuid>$p and .name = <str>$n and .target = <str>$old
+        set { target := <str>$new }) { id };
 ```
 
 ## DELETE
@@ -127,6 +155,9 @@ delete User
   filter .active = false
   order by .created_at asc
   limit 10;
+
+# Conditional delete, observed: [] when nothing matched
+select (delete GitRef filter .program.id = <uuid>$p and .target = <str>$old) { id };
 ```
 
 ## Parameters
@@ -279,6 +310,17 @@ select <uuid>"d290f1ee-6c54-4b01-90e6-d701748f0851";
 # Cast in expressions
 select User filter .id = <uuid>$id;
 select Post { age_days := <int64>(datetime_current() - .created_at) / 86400 };
+
+# A cast covers the whole postfix expression: subscript, call, path
+select <str>item['name'];         # <str>(item['name'])
+select (<json>$doc)['name'];      # subscript a cast value: parenthesize
+select <array<str>>item['tags'];  # from JSON: keeps order, [] stays []
+
+# Object cast in link position = the object with that id
+insert Post { author := <User><uuid>$author_id, title := <str>$t };
+
+# bytes travel as base64 in JSON, both ways
+insert Blob { data := <bytes>$data };   # variables: { "data": "AQID" }
 ```
 
 ## EXPLAIN

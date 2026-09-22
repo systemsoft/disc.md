@@ -24,6 +24,7 @@ disc status   # Show instance status
 | `--host <host>`            | Bind address (default: `localhost`)         |
 | `--jwt-secret <key>`       | Enable authentication with this signing key |
 | `--port <port>`            | HTTP port (default: `5656`)                 |
+| `--service-token <tok>`    | Static bearer token for a trusted backend (≥ 32 bytes; bypasses access policies on `/query` and `/transaction/*`). Visible in `ps` — prefer `DISC_SERVICE_TOKEN`. See [Service credential](access-policies.md#:~:text=Service%20credential). |
 | `--tls-cert <path>`        | Path to TLS certificate for HTTPS           |
 | `--tls-key <path>`         | Path to TLS private key                     |
 
@@ -78,9 +79,10 @@ All server configuration can be set via environment variables. The `createServer
 | :--------------------- | :--------------------------------- | :----------------------------------- |
 | `DATABASE_URL`         | `postgresql://localhost:5432/disc` | PostgreSQL connection string         |
 | `DISC_HOST`            | `localhost`                        | Bind address                         |
-| `DISC_MAX_CONNECTIONS` | `100`                              | Max concurrent connections           |
+| `DISC_MAX_CONNECTIONS` | `100`                              | Size of the server’s PostgreSQL connection pool (the pool the query handler and open transactions draw from) |
+| `DISC_MAX_REQUEST_BODY_BYTES` | `4194304` (4 MiB)           | Cap on the `POST /query` body. A `disc.toml` `[server] max_request_body_bytes` takes precedence over the env var. Larger bodies are `413`. |
 | `DISC_PORT`            | `5656`                             | HTTP listen port                     |
-| `DISC_PROTOCOL`        | `simple`                           | Protocol handler: `simple` or `full` |
+| `DISC_PROTOCOL`        | `full`                             | Protocol handler: `full` (the real EdgeQL compiler, access policies enforced) or `simple` (an explicit opt-in for development; enforces no policies) |
 | `DISC_REQUEST_TIMEOUT` | `30000`                            | Request timeout in milliseconds      |
 
 #### Authentication
@@ -91,7 +93,8 @@ All server configuration can be set via environment variables. The `createServer
 | `DISC_ENABLE_AUTH`            | (auto)  | Explicit auth toggle (`true`/`false`)                           |
 | `DISC_JWT_SECRET`             | (none)  | JWT signing secret. Enables auth when set.                      |
 | `DISC_REQUIRE_AUTH`           | `false` | Gate `/query`, `/schema*`, `/migrations`, `/stats`, `/metrics`. |
-| `DISC_READ_ONLY`              | `false` | Reject `INSERT`/`UPDATE`/`DELETE`/`CONFIGURE` at AST level.     |
+| `DISC_SERVICE_TOKEN`          | (none)  | Static bearer token for a trusted backend. Honored on `/query` and `/transaction/*` only; the caller bypasses every access policy. At least 32 bytes or the server refuses to start. Env/CLI only — never `disc.toml`. See [Service credential](access-policies.md#:~:text=Service%20credential). |
+| `DISC_READ_ONLY`              | `false` | Reject `INSERT`/`UPDATE`/`DELETE`/`CONFIGURE` at AST level, including mutations nested in `with`, `for` and `select (…)`. |
 
 #### CORS
 
@@ -171,7 +174,7 @@ All server configuration can be set via environment variables. The `createServer
 | `DISC_BINARY_TLS_KEY`      | (none)  | TLS private key for the binary listener                                    |
 | `DISC_BINARY_TLS_KEY_ENV`  | (none)  | Name of an env var holding the PEM key                                     |
 
-> The `[server]` knobs `corsAllowCredentials`, `corsAllowedHeaders`, `corsAllowedMethods`, `corsExposeHeaders`, `corsMaxAge`, and `maxRequestBodyBytes` remain `disc.toml`-only — they’re project-level defaults rather than per-deployment knobs. See [Project Context Resolution](cli.md#:~:text=Project%20Context%20Resolution) for the full table. Secrets (JWT, bcrypt rounds) stay env/CLI-only and never live in `disc.toml`.
+> The `[server]` knobs `corsAllowCredentials`, `corsAllowedHeaders`, `corsAllowedMethods`, `corsExposeHeaders`, and `corsMaxAge` remain `disc.toml`-only — they’re project-level defaults rather than per-deployment knobs. `maxRequestBodyBytes` can be set either way; the `disc.toml` value wins over `DISC_MAX_REQUEST_BODY_BYTES`. See [Project Context Resolution](cli.md#:~:text=Project%20Context%20Resolution) for the full table. Secrets (JWT, bcrypt rounds, the service token) stay env/CLI-only and never live in `disc.toml`.
 
 ### ServerConfig Reference
 
@@ -201,17 +204,18 @@ interface DiscServerOptions {
   extensions?: Extension[];
   host?: string; // default: "localhost"
   jwtSecret?: string;
-  maxConnections?: number; // default: 100
-  maxRequestBodyBytes?: number; // default: 4 MiB
+  maxConnections?: number; // default: 100 — size of the PostgreSQL pool used by /query and transactions
+  maxRequestBodyBytes?: number; // default: 4 MiB (env: DISC_MAX_REQUEST_BODY_BYTES; disc.toml wins)
   port?: number; // default: 5656
   postgresInstance?: PostgresInstance;
-  protocol?: "simple" | "full"; // default: "full" (env override "simple")
+  protocol?: "simple" | "full"; // default: "full"; "simple" is an explicit opt-in (no policy enforcement)
   rateLimitBurst?: number;
   rateLimitRpm?: number;
   readOnly?: boolean; // reject INSERT/UPDATE/DELETE/CONFIGURE
   requestTimeout?: number; // default: 30000
   requireAuth?: boolean; // gate data-plane on Authorization header
   schema?: Schema;
+  serviceToken?: string; // static bearer for a trusted backend (≥ 32 bytes); env: DISC_SERVICE_TOKEN
   shutdownDrainTimeout?: number; // default: 30000
   slowQueryThresholdMs?: number; // default: 1000
   tls?: {
@@ -324,7 +328,21 @@ Execute an EdgeQL query. This is the primary endpoint for all data operations.
 | :-------------- | :------------------------ | :------- | :------------------------------- |
 | `operationName` | `string`                  | No       | Operation name (for multi-query) |
 | `query`         | `string`                  | Yes      | EdgeQL query string              |
-| `variables`     | `Record<string, unknown>` | No       | Query parameters                 |
+| `variables`     | `Record<string, unknown>` | No       | Query parameters, keyed by name  |
+
+Variables bind **by name**, so the key order of `variables` does not matter. Every `$name` the query uses must be present, and nothing else may be: a missing variable and an unknown one are both a `400` `VALIDATION_ERROR` naming the variable (`Missing variable: the query uses $b, …` / `Unknown variable: $typo was provided, …`), and nothing reaches the database. An explicit `null` counts as a value.
+
+`bytes` variables are base64 strings (or PostgreSQL `\x…` hex input); anything else is a `400` naming the variable. `bytes` values in responses are base64 too. See [EdgeQL → Bytes](edgeql.md#:~:text=Bytes%20on%20the%20wire).
+
+The body is capped at `maxRequestBodyBytes` (4 MiB by default; `DISC_MAX_REQUEST_BODY_BYTES` or `disc.toml` `[server] max_request_body_bytes`). Because base64 inflates by 4/3, the default fits roughly 3 MiB of raw `bytes` per request. Larger bodies are `413`.
+
+Optional headers:
+
+| Header                          | Description                                                                                                                                          |
+| :------------------------------ | :--------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Authorization: Bearer <token>` | A user JWT, or the [service credential](access-policies.md#:~:text=Service%20credential) (`DISC_SERVICE_TOKEN`), which bypasses access policies. |
+| `X-Transaction-ID`              | Run the query inside a transaction opened with `POST /transaction/begin`.                                                                            |
+| `X-Disc-Apply-Access-Policies: false` | Per-request policy bypass; honored only when the JWT’s roles include `admin` or `superuser`.                                                   |
 
 **Successful response (200):**
 
@@ -342,10 +360,12 @@ Execute an EdgeQL query. This is the primary endpoint for all data operations.
     "durationMs": 12,
     "executeMs": 8,
     "parseMs": 1,
-    "queryHash": "a1b2c3d4"
+    "queryHash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
   }
 }
 ```
+
+`queryHash` is the SHA-256 hex digest of the query text (64 characters); it is also the key of the parse, compilation and EXPLAIN caches.
 
 **Error response (400):**
 
@@ -376,6 +396,26 @@ Execute an EdgeQL query. This is the primary endpoint for all data operations.
 }
 ```
 
+**Execution error (400):** a statement that PostgreSQL rejects carries the SQLSTATE, plus `constraint`, `table` and `detail` when PostgreSQL sent them, so a client can tell a unique violation (`23505`) from a foreign-key violation (`23503`), a serialization failure (`40001`) or a deadlock (`40P01`) without matching on the message. Parse, compile and validation errors have no `sqlState`.
+
+```json
+{
+  "errors": [
+    {
+      "extensions": {
+        "code": "EXECUTION_ERROR",
+        "constraint": "uk_git_ref_program_id_name",
+        "detail": "Key (program_id, name)=(…, refs/heads/main) already exists.",
+        "durationMs": 4,
+        "sqlState": "23505",
+        "table": "git_ref"
+      },
+      "message": "duplicate key value violates unique constraint \"uk_git_ref_program_id_name\""
+    }
+  ]
+}
+```
+
 **Timeout (408):**
 
 ```json
@@ -395,6 +435,29 @@ The query endpoint validates requests before execution. Validation checks includ
 - Query must not exceed 100KB.
 - Variables, if provided, must be an object.
 - Basic EdgeQL syntax validation (balanced braces, valid start keyword).
+
+**Response shape by statement kind.** A `select` (including `select (insert|update|delete …) { … }`, the `with u := (mutation) select u { … }` form and a `for … union (insert …)` over `json_array_unpack`/`array_unpack`/`range_unpack`) answers with the row set — `[]` when nothing matched. A bare `insert` answers with the inserted row, or `{ "success": true }` when `unless conflict` swallowed it; a bare `update` with the first updated row, or `{ "updated": 0 }` when nothing matched; a bare `delete` with `{ "deleted": n }`. These bare shapes are unchanged for backward compatibility and cannot tell you *which* rows were touched. The kind is decided from the query, not from the generated SQL, so it is stable across cache hits. To observe exactly which rows a mutation touched, wrap it: `select (update T filter … set { … }) { id }`. See [EdgeQL → Selecting over a mutation](edgeql.md#:~:text=Selecting%20over%20a%20mutation).
+
+### `POST /transaction/begin`, `POST /transaction/commit`, `POST /transaction/rollback`
+
+The wire protocol behind [`client.transaction()`](client-sdk.md#:~:text=Transactions). `begin` takes an optional JSON body `{ "isolationLevel": "read committed" | "repeatable read" | "serializable", "readOnly": boolean }` and answers `{ "transactionId": "…" }`. Queries join the transaction by sending that id in the `X-Transaction-ID` header on `POST /query`; `commit` and `rollback` take the same header and answer `{ "ok": true }`.
+
+Transactions are owned by the caller that opened them (the JWT’s user id, or `"service"` for the [service credential](access-policies.md#:~:text=Service%20credential)); another caller’s query, commit or rollback against that id is `403`. Transaction state lives in the server process, so behind a load balancer a client’s transaction requests must be pinned to one replica.
+
+**A failed statement poisons the transaction**, as in PostgreSQL. Any statement that reaches PostgreSQL and fails — or times out, or crashes the handler — marks the transaction aborted; parse, compile and validation errors do not, because nothing was sent. A `commit` of an aborted transaction rolls it back, forgets the id and answers `409`:
+
+```json
+{
+  "errors": [
+    {
+      "extensions": { "code": "TRANSACTION_ABORTED" },
+      "message": "Transaction 7f3c… was aborted by a failed statement and has been rolled back"
+    }
+  ]
+}
+```
+
+A `COMMIT` that PostgreSQL itself rejects (deferred constraint, serialization failure) answers `500` with the `EXECUTION_ERROR` envelope including `sqlState`. In both cases the transaction id is gone afterwards: a repeated commit is `404`, never `{ "ok": true }`. Unknown id (`404`), wrong owner (`403`) and a missing header (`400`) keep the plain `{ "error": "…" }` body.
 
 ### `GET /health`
 
@@ -487,6 +550,7 @@ Detailed server statistics for monitoring and debugging.
   },
   "queries": {
     "avgDurationMs": 15.3,
+    "bypassed": 12,
     "failed": 20,
     "successful": 1480,
     "total": 1500
@@ -510,6 +574,8 @@ Detailed server statistics for monitoring and debugging.
   "uptimeMs": 3600000
 }
 ```
+
+`queries.bypassed` counts `/query` requests that ran with access policies bypassed — by the [service credential](access-policies.md#:~:text=Service%20credential) or by an admin’s `X-Disc-Apply-Access-Policies: false` header. `queries.total` counts every HTTP request, including the `/stats` fetch itself. The service token itself never appears in `/stats`, `/config`, `/` or the logs.
 
 ### `GET /metrics`
 
@@ -613,6 +679,8 @@ const ws = new WebSocket("ws://localhost:5656");
 ```
 
 WebSocket support must be enabled on the server (`enableWebsockets: true`, the default).
+
+> **WebSocket queries carry no identity.** The upgrade happens before the auth gate and the socket never reads `Authorization`, so with access policies on, queries sent over a WebSocket compile as an anonymous caller, and neither a user JWT nor the [service credential](access-policies.md#:~:text=Service%20credential) is honored there. Use `POST /query` for anything that depends on who is asking.
 
 ### Client-to-Server Messages
 
@@ -735,6 +803,8 @@ const server = new DiscServer({
 ### Authentication
 
 The binary protocol uses SCRAM-SHA-256 authentication. Set a password via `binaryPassword` in the server options. If no password is set, authentication is not required.
+
+SCRAM authenticates the connection, not a Disc user: with access policies on, every binary-protocol query compiles as an **anonymous** caller, so it cannot reach a type whose policy depends on `global current_user`, and the [service credential](access-policies.md#:~:text=Service%20credential) is not honored on this listener. There is currently no way to carry a Disc identity over the binary protocol. Writes are rejected in read-only mode here too, nested ones included.
 
 ### Protocol Details
 
@@ -924,8 +994,10 @@ The server supports two protocol handler implementations:
 
 | Handler                       | Flag       | Description                                       |
 | :---------------------------- | :--------- | :------------------------------------------------ |
-| `SimpleEdgeQLProtocolHandler` | `"simple"` | Simulated compilation for development and testing |
-| `EdgeQLProtocolHandler`       | `"full"`   | Full EdgeQL parser, compiler, and SQL generation  |
+| `EdgeQLProtocolHandler`       | `"full"`   | Full EdgeQL parser, compiler, and SQL generation (the default) |
+| `SimpleEdgeQLProtocolHandler` | `"simple"` | Simulated compilation for development and testing; enforces no access policies. Explicit opt-in only. |
+
+`full` is the default both for `disc serve` / `createServerFromEnv()` and for `new DiscServer({})` with no `protocol` given. The simple handler is never selected implicitly — pass `protocol: "simple"` or set `DISC_PROTOCOL=simple`. The simple handler also does not decode base64 `bytes` variables and cannot run `select (update …) { … }`; treat it as a development aid, not a serving configuration.
 
 The `full` handler provides:
 
@@ -936,16 +1008,16 @@ The `full` handler provides:
 - Query timeout enforcement (via `requestTimeout`).
 - Access policy enforcement (when `enableAccessPolicies` is true).
 
-Set the handler via:
+Opt into the simple handler via:
 
 ```bash
-DISC_PROTOCOL=full
+DISC_PROTOCOL=simple
 ```
 
 Or:
 
 ```typescript
-const server = new DiscServer({ protocol: "full" });
+const server = new DiscServer({ protocol: "simple" });
 ```
 
 ### CORS

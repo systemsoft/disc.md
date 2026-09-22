@@ -297,6 +297,34 @@ insert User {
 
 When a conflict on `.email` is detected, the `else` clause runs instead. This implements an upsert pattern: insert if the email does not exist, otherwise update the existing row.
 
+> With access policies on, an upsert on a type whose update policy has a row predicate is a compile error — see [Access Policies](access-policies.md#:~:text=Upsert%20and%20row%2Dlevel).
+
+### Composite and link conflict targets
+
+The conflict target can be a single link, or a tuple of properties and single links. It must match a unique index the schema declares — a property-level `constraint exclusive`, or a type-level `constraint exclusive on ((.a, .b))` (see [Schema → Constraints](schema.md#:~:text=Type%2Dlevel%20exclusive)). A link resolves to its `<link>_id` column, in declaration order:
+
+```edgeql
+insert GitRef {
+  program := <Program><uuid>$p,
+  name := <str>$n,
+  target := <str>$t
+} unless conflict on ((.program, .name));
+# ON CONFLICT (program_id, name) DO NOTHING
+```
+
+An unresolvable target (an unknown name, a multi link, a computed property, a multi-step path) is a compile error rather than a silently target-less `ON CONFLICT DO NOTHING`, which would swallow every unique violation on the table. A target that names no unique index compiles but fails in PostgreSQL at execution.
+
+### Linking by id: `<Type><uuid>$p`
+
+Where a single link value is expected, an object cast over a uuid stands for the object with that id, without a subquery:
+
+```edgeql
+insert GitRef { program := <Program><uuid>$p, name := <str>$n, target := <str>$t };
+# equivalent to: program := (select Program filter .id = <uuid>$p)
+```
+
+The same form works in a mutation filter: `update GitRef filter .program = <Program><uuid>$p …` compiles to `program_id = $1`. A misspelled type in this form is a compile error. The cast is only the id, so a shape over it (`select (<Program><uuid>$p) { name }`) is rejected — write `select Program { name } filter .id = <uuid>$p`.
+
 ### `UNLESS CONFLICT` without `ELSE`
 
 Silently skip the insert if a conflict occurs:
@@ -358,6 +386,47 @@ set {
 };
 ```
 
+### Filtering through a link
+
+An `update` or `delete` filter can traverse a single link. `.link.id` compiles to the foreign-key column with no join; deeper paths become a correlated subselect, as in `select`:
+
+```edgeql
+update GitRef
+filter .program.id = <uuid>$p and .name = <str>$n
+set { target := <str>$new };
+# UPDATE git_ref SET target = $3 WHERE program_id = $1 AND name = $2 RETURNING *
+```
+
+### Selecting over a mutation
+
+A bare `update` answers with the first updated row or `{ "updated": n }`, and a bare `delete` with `{ "deleted": n }` (see [Server → `POST /query`](server.md#:~:text=Response%20shape%20by%20statement%20kind)). To see exactly which rows a mutation touched, wrap it in a `select` with a shape. The mutation runs as a data-modifying CTE and the shape is projected over its `RETURNING` rows:
+
+```edgeql
+select (
+  update GitRef
+  filter .program.id = <uuid>$p and .name = <str>$n and .target = <str>$old
+  set { target := <str>$new }
+) { id };
+```
+
+```sql
+WITH m AS (
+  UPDATE git_ref SET target = CAST($4 AS text)
+  WHERE (("git_ref"."program_id" = CAST($1 AS uuid)) AND (git_ref.name = CAST($2 AS text)))
+    AND (git_ref.target = CAST($3 AS text))
+  RETURNING *
+) SELECT jsonb_build_object('id', m_1.id) FROM m AS m_1
+```
+
+The result is always a row set: `[{ "id": "…" }]` when the row was updated, `[]` when `$old` was stale. That makes it the **compare-and-swap** idiom — under concurrency, exactly one of several callers with the same `$old` gets a non-empty result. The same works for `delete` and for `insert … unless conflict` (`[]` on conflict, `[{ "id" }]` on insert):
+
+```edgeql
+select (delete GitRef filter .program.id = <uuid>$p and .name = <str>$n and .target = <str>$old) { id };
+select (insert GitRef { program := <Program><uuid>$p, name := <str>$n, target := <str>$t } unless conflict on ((.program, .name))) { id };
+```
+
+`with u := (update …) select u { id }` is the same statement spelled differently and compiles to identical SQL. With a shape, only the requested fields are projected (`content` and other large columns stay out of the response); without a shape, `select u` or `select (update …)` returns every column of the `RETURNING *` row, with column names. Access policies travel with the mutation inside the CTE. A mutation cannot yet nest inside another data-modifying `with` binding (PostgreSQL requires those at the top level).
+
 ### Update All Matching Objects
 
 Without a filter, the update applies to all objects of the type:
@@ -394,6 +463,14 @@ limit 100;
 ```
 
 This is useful for batch cleanup operations.
+
+### Delete through a link
+
+Like `update`, a `delete` filter can traverse a single link, and `select (delete …) { id }` returns the deleted rows (`[]` when nothing matched):
+
+```edgeql
+select (delete GitRef filter .program.id = <uuid>$p and .name = <str>$n) { id };
+```
 
 ### Delete All
 
@@ -449,6 +526,26 @@ set {
 };
 ```
 
+### Binding
+
+Variables are bound **by name**: the `variables` object may list them in any order. Every `$name` the query uses must be present and nothing else may be — a missing or unknown variable is a `400` `VALIDATION_ERROR` naming it, and nothing reaches the database. An explicit `null` counts as a value. A name used twice in the query gets one slot.
+
+### Bytes on the wire
+
+`bytes` is base64 (RFC 4648, standard alphabet, padded, no line breaks) in JSON — both in variables and in results, everywhere a `bytes` value appears: shapes, `{ * }`, nested links, `select (insert …) { … }`, bare insert/update results and unshaped selects. `array<bytes>` is a JSON array of such strings; `null` elements and `[]` are preserved.
+
+```edgeql
+insert GitObject { content := <bytes>$content, object_id := <str>$oid, … };
+# variables: { "content": "H4sIAAAAAAAA…", "oid": "…" }
+
+select GitObject { object_id, content } filter .object_id = <str>$oid;
+# data: [{ "object_id": "…", "content": "H4sIAAAAAAAA…" }]
+```
+
+Inbound, a `<bytes>$p` variable must be a base64 string (ASCII whitespace is tolerated; the URL-safe alphabet is not), or a string starting with `\x` which passes through as PostgreSQL hex input (invalid hex is then a PostgreSQL error). Anything else — a number, an object such as `{"0": 31, …}`, a bare array — is a `400` naming the variable. `array<bytes>` takes an array of such strings. Bytes carried *inside* a `<json>` variable are not decoded: keep them as base64 text and decode in the query with `std::base64_decode(<str>item['content'])` (a `<bytes>` cast from json is a compile error pointing there). `std::base64_encode` emits the same unbroken base64.
+
+The request body is capped at 4 MiB by default (`DISC_MAX_REQUEST_BODY_BYTES` / `disc.toml` `max_request_body_bytes`); base64 inflates by 4/3, so that is roughly 3 MiB of raw bytes per request. Responses have no cap. The TypeScript SDK encodes `Uint8Array` (and Node `Buffer`) variables automatically and revives `bytes` fields on the way back — see [Client SDK → Bytes](client-sdk.md#:~:text=Bytes).
+
 ### Supported Parameter Types
 
 Any scalar type can be used as a parameter type:
@@ -470,6 +567,7 @@ Any scalar type can be used as a parameter type:
 <bool>$flag
 <uuid>$id
 <datetime>$timestamp
+<bytes>$blob
 <json>$data
 ```
 
@@ -520,6 +618,34 @@ select <cal::local_date>"2024-03-15";
 select <cal::local_time>"14:30:00";
 select <cal::local_datetime>"2024-03-15T14:30:00";
 ```
+
+### Cast Precedence
+
+A cast applies to the whole postfix expression after it — subscripts, function calls and paths — and stops at the first operator, as in Gel:
+
+```edgeql
+<str>item['k']          # <str>(item['k'])
+<str>json_get(x, 'k')   # <str>(json_get(x, 'k'))
+<str>.a.b               # <str>(.a.b)
+<str>x ++ 'a'           # (<str>x) ++ 'a'
+<int64><str>x           # casts chain right to left
+```
+
+So to subscript a *cast* value, parenthesize the cast: `(<json>$x)['a']`. (`<json>$x['a']` is a subscript on the uncast parameter.)
+
+### Casting from JSON
+
+A cast whose operand is JSON reads the value out of the JSON rather than re-parsing its text:
+
+| Cast                | From JSON                                                                                                          |
+| :------------------ | :----------------------------------------------------------------------------------------------------------------- |
+| `<str>`             | The string without its JSON quotes (`#>> '{}'`).                                                                   |
+| numeric, `<bool>`, `<uuid>`, `<datetime>`, enums | Read from that text, then cast. A JSON *string* `"12"` casts to `<int64>` (more lenient than Gel). |
+| `<array<T>>`        | Element order is kept; `[]` is an empty array; a missing key or JSON `null` is NULL (so a `required` array property rejects the row). A non-array is a PostgreSQL error. |
+| `<json>`            | Plain cast.                                                                                                        |
+| `<bytes>`           | Compile error — JSON carries bytes as base64 text; use `std::base64_decode(<str>j['content'])`.                    |
+
+A missing key or a JSON `null` yields NULL / the empty set for every cast. The compiler decides syntactically what counts as a JSON operand: a `<json>` cast; a subscript with a string-literal key (`x['k']`) or any subscript on one of these; a call to a function returning json (`json_get`, `to_json`, `json_array_unpack`, `json_object_unpack`); a `with` binding, set-literal `for` element or `for` variable over `json_array_unpack(…)` bound to one of these; and a one-step path to a stored `json` property. Anything else (`a ?? b`, `if … else`, a subquery, `.link.meta`, a tuple element) keeps the plain SQL cast — put an explicit `<json>` in front of it first.
 
 ### JSON Casts
 
@@ -795,6 +921,39 @@ union (
 );
 ```
 
+### Bulk insert from JSON
+
+To insert many rows in one request, send them as a single `<json>` variable and iterate it. When the body is one `insert`, the whole loop compiles to **one** `INSERT … SELECT … FROM jsonb_array_elements($1)` statement — 500 rows is one round trip and one statement, and it is all-or-nothing (a constraint violation in any row inserts none):
+
+```edgeql
+with rows := <json>$rows
+for item in json_array_unpack(rows)
+union (
+  insert GitObject {
+    program := <Program><uuid>$p,
+    object_id := <str>item['object_id'],
+    object_type := <str>item['object_type'],
+    size := <int64>item['size'],
+    content := std::base64_decode(<str>item['content'])
+  } unless conflict on ((.program, .object_id))
+);
+```
+
+```sql
+INSERT INTO git_object (program_id, object_id, object_type, size, content)
+SELECT CAST($2 AS uuid), (for_iter.val -> 'object_id') #>> '{}', (for_iter.val -> 'object_type') #>> '{}',
+       CAST((for_iter.val -> 'size') #>> '{}' AS bigint), std_base64_decode((for_iter.val -> 'content') #>> '{}')
+FROM JSONB_ARRAY_ELEMENTS(CAST($1 AS jsonb)) AS for_iter(val)
+ON CONFLICT (program_id, object_id) DO NOTHING RETURNING id
+```
+
+- **Response:** `[{ "id": "…" }, …]` — one entry per row actually inserted, never the inserted properties. With `unless conflict on (…)`, rows that already existed are absent, so re-running the same request is a no-op that answers `[]` and raises nothing.
+- **Iterators:** `json_array_unpack(…)`, `array_unpack(<array<T>>$xs)`, `range_unpack(…)` (integer ranges), or a subquery. The body is one `insert` (no multi-link assignment) or a `select`. `update`/`delete` bodies are not supported — use one statement with `filter .id in array_unpack(<array<uuid>>$ids)` instead.
+- **JSON casts:** `<str>item['k']` gives the string without quotes; `<array<str>>item['parents']` keeps order and round-trips `[]`; bytes go in as base64 text and are decoded with `std::base64_decode(<str>…)` (see [Casting from JSON](#:~:text=Casting%20from%20JSON)).
+- **`with` bindings** are visible in the body, including an object selected once: `with prog := (select Program filter .id = <uuid>$p) for … union (insert GitObject { program := prog, … })`.
+- **Size:** the request body is capped at 4 MiB by default (about 3 MiB of raw bytes as base64); raise `DISC_MAX_REQUEST_BODY_BYTES` or chunk.
+- **Policies:** the insert policy applies to the body exactly as to a bare insert.
+
 ### `FOR` with Subquery
 
 ```edgeql
@@ -863,6 +1022,23 @@ select recent {
   currency
 };
 ```
+
+### Using Bindings in the Body
+
+A name bound in a `with` block can be used anywhere in the body. A scalar or parameter binding is inlined at each use; a set-valued binding (a subquery or a mutation) becomes a CTE, and in expression position — link assignment, `.link = name`, `.id` comparisons — its name stands for the bound objects’ ids:
+
+```edgeql
+with n := <str>$name
+select GitRef { id } filter .name = n;
+
+with prog := (select Program filter .id = <uuid>$p)
+insert GitRef { program := prog, name := <str>$n, target := <str>$t };
+
+with u := (update GitRef filter .name = <str>$n set { target := <str>$t })
+select u { id, target };
+```
+
+A `with`-bound `select` is not filtered by the type’s select policy (see [Access Policies → Limitations](access-policies.md#:~:text=Limitations)).
 
 ### Recursive CTEs (`WITH RECURSIVE`)
 
@@ -1530,6 +1706,8 @@ Globals are stored as PostgreSQL session settings using the naming convention `d
 
 EdgeQL includes a standard library of built-in functions. This section provides a brief overview. See the [Functions Reference](functions.md) for complete documentation.
 
+A call to a function the compiler does not know is a compile error naming it (`Unknown function 'enc::base64_decode'. It is not a built-in function, and the schema does not declare it …`). Known functions are the built-ins (with or without `std::`), `function` declarations in your SDL (`f` or `default::f`; `mod::f` for other modules), and extension and custom functions. PostgreSQL-native names are **not** passed through: `lower()`, `coalesce()` and `now()` are rejected — write `str_lower()`, `??` and `datetime_current()`.
+
 ### Aggregate Functions
 
 ```edgeql
@@ -1729,9 +1907,11 @@ union (
   insert User {
     email := <str>json_get(item, "email"),
     name := <str>json_get(item, "name")
-  }
+  } unless conflict on .email
 );
 ```
+
+One request, one `INSERT … SELECT` statement, however many rows `$users` holds; the response lists the ids of the rows actually inserted. See [Bulk insert from JSON](#:~:text=Bulk%20insert%20from%20JSON).
 
 ### Recursive Category Tree
 

@@ -136,7 +136,7 @@ Disc supports all standard scalar types. These map directly to PostgreSQL column
 
 | SDL Type   | Description               | PostgreSQL Type |
 | :--------- | :------------------------ | :-------------- |
-| `bytes`    | Binary data               | `bytea`         |
+| `bytes`    | Binary data (base64 in JSON, both directions) | `bytea`         |
 | `json`     | JSON data                 | `jsonb`         |
 | `sequence` | Auto-incrementing integer | `bigint`        |
 | `uuid`     | UUID identifier           | `uuid`          |
@@ -362,6 +362,32 @@ module default {
   };
 };
 ```
+
+### Type-level `exclusive` (composite uniqueness)
+
+A type-level `constraint exclusive on (…)` makes a combination of properties and single links unique. It creates a real unique index, so it is enforced by PostgreSQL and can serve as the target of `unless conflict on (…)`:
+
+```sdl
+module default {
+  type GitRef {
+    required name: str;
+    required link program -> Program { on target delete cascade; }
+    required target: str;
+
+    constraint exclusive on ((.program, .name));
+  };
+};
+```
+
+```sql
+CREATE UNIQUE INDEX uk_git_ref_program_id_name ON git_ref (program_id, name);
+```
+
+- **Columns** follow declaration order; a single link maps to its foreign-key column `<link>_id`. Multi links, computed members and multi-step paths are rejected at migration time with a clear message, as is a type-level `exclusive` or `index on` declared on a type that has subtypes (indexes are not inherited).
+- **Name**: `uk_<table>_<col1>_<col2>…`, shortened to PostgreSQL’s 63-byte limit with an 8-hex-character hash suffix when needed (names that fit are never changed). A single-column `exclusive on (.x)` on a property that already carries a property-level `constraint exclusive` emits nothing extra.
+- **Existing deployments**: the migration engine diffs the stored schema, so a deployment whose baseline already declared the constraint (unenforced by older Disc versions) would never see a diff. `disc migrate` therefore backfills every declared type-level index it cannot find in `pg_indexes` with `CREATE UNIQUE INDEX IF NOT EXISTS …`; `disc migrate --create` previews those statements. The backfill is idempotent — a second run is a no-op.
+- **Duplicates**: if existing rows violate the constraint, the migration fails with a message naming the type and the declaration, PostgreSQL’s detail, and a `SELECT … GROUP BY … HAVING count(*) > 1` query that finds the duplicates; nothing is applied. Check for duplicates before migrating a schema whose exclusive was previously unenforced. See [Migrations → Index Operations](migrations.md#:~:text=Index%20Operations).
+- A duplicate at runtime is SQLSTATE `23505` (`UniqueViolationError` in the SDK), with `constraint` set to the index name.
 
 ### `max_len_value`
 
@@ -772,6 +798,23 @@ module default {
   };
 };
 ```
+
+### Link Indexes
+
+The foreign-key column of every single link is indexed automatically (`idx_<table>_<link>_id`), so `filter .author = <uuid>$id` and `filter .author.id = <uuid>$id` already use an index. A plain `index on (.author)` would duplicate that index and is skipped (this also applies to a named `index foo on (.author)` — the declared name is not created). Composite indexes over a link are emitted, with the link resolved to its `<link>_id` column:
+
+```sdl
+module default {
+  type Post {
+    required author: User;
+    required status: str;
+
+    index on ((.author, .status));   # CREATE INDEX idx_post_author_id_status ON post (author_id, status)
+  };
+};
+```
+
+Indexes declared in a newly created type are emitted right after its `CREATE TABLE`; on an existing deployment, declared indexes missing from `pg_indexes` are backfilled by `disc migrate` (see [Type-level `exclusive`](#:~:text=Type%2Dlevel%20exclusive)).
 
 ### Expression Indexes
 

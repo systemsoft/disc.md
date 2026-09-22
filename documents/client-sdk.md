@@ -97,11 +97,13 @@ const client = new DiscClient({ logger: console });
 
 ### `client.query<T>(query, variables?, options?)`
 
-Executes an EdgeQL query and returns the result data directly. Throws `DiscQueryError` if the server returns any errors.
+Executes an EdgeQL query and returns the result data directly. Throws `DiscQueryError` (or one of its [typed subclasses](#:~:text=Error%20Hierarchy)) if the server returns query errors, and every other non-OK response is an error too: `DiscAuthError` for 401/403, `DiscServerError` for 5xx, and `DiscProtocolError` (with `statusCode` and the server’s message) for any other 4xx such as 413 body-too-large or 429. `query()` never resolves `undefined` on a failed request.
 
 The optional `options` argument accepts `{ revive, validate }`: `revive` auto-converts wire-encoded scalars (e.g. ISO date strings into `Date`), and `validate` runs a validator against the result, throwing `DiscValidationError` if it rejects.
 
-`bigint` variables (the type codegen assigns to `int64` fields) are supported directly — the client encodes them as numeric strings on the wire, so `{ count: 0n }` works where plain `JSON.stringify` would throw "Do not know how to serialize a BigInt". `Uint8Array` values should be wrapped with `encodeBytes()` before being passed as variables.
+`bigint` variables (the type codegen assigns to `int64` fields) are supported directly — the client encodes them as numeric strings on the wire, so `{ count: 0n }` works where plain `JSON.stringify` would throw "Do not know how to serialize a BigInt". `Uint8Array` variables are sent as base64 automatically, at any depth — see [Bytes](#:~:text=Bytes) below.
+
+Variables are bound by name, so their key order is irrelevant; a missing or extra variable is a 400 `VALIDATION_ERROR` naming it.
 
 ```typescript
 // Select all users
@@ -137,6 +139,29 @@ await client.query(
   { email: "billie@example.com" }
 );
 ```
+
+### Bytes
+
+`bytes` is base64 on the wire, both directions ([EdgeQL → Bytes on the wire](edgeql.md#:~:text=Bytes%20on%20the%20wire)). The SDK handles the encoding:
+
+- **Outbound**, a `Uint8Array` (or a Node `Buffer`) anywhere in `variables` — top level, nested in an object, inside an array, inside a `<json>` payload — is sent as base64. `encodeBytes()` is no longer needed for variables. For multi-MB Buffers, pass a `Uint8Array` view (`new Uint8Array(buf.buffer, buf.byteOffset, buf.length)`) to skip `Buffer.toJSON()`.
+- **Inbound, generated builders**: `select`, `selectById`, `filter`, `insert` and `update` on a generated client return `Uint8Array` for `bytes` fields, including through links, via `reviveTyped(data, typeInfo)`.
+- **Inbound, raw queries**: name the `bytes` fields to decode with `revive.bytes` — dot paths relative to a result row; arrays are transparent, so `"content"` covers a list of rows, `"obj.content"` a link’s rows, and the same path an `array<bytes>` field. `revive: true` alone never touches bytes.
+
+```typescript
+const rows = await client.query<{ object_id: string; content: Uint8Array; }[]>(
+  "select GitObject { object_id, content } filter .program.id = <uuid>$p",
+  { p: programId },
+  { revive: { bytes: ["content"] } }
+);
+
+await client.query(
+  "insert GitObject { program := <Program><uuid>$p, object_id := <str>$oid, size := <int64>$n, content := <bytes>$content }",
+  { content: new Uint8Array([0x1f, 0x8b]), n: 2, oid, p: programId }
+);
+```
+
+`parseBytes(str)` decodes a wire value by hand and accepts both base64 and PostgreSQL `\x` hex. The request body is capped at 4 MiB by default (`DISC_MAX_REQUEST_BODY_BYTES`), which is about 3 MiB of raw bytes after base64 inflation; a larger payload is a 413 (`DiscProtocolError`). Server and SDK must be upgraded together: an old SDK against a new server gets 400s for `Uint8Array` variables, and a new SDK against an old server stores the base64 text as ASCII.
 
 ### `client.queryRaw<T>(query, variables?)`
 
@@ -406,6 +431,18 @@ auth.dispose();
 
 This is important in environments where timers would prevent garbage collection or process exit.
 
+### Derived Clients: `withToken` and `withHeaders`
+
+`client.withToken(token)` returns a client that sends `token` as its bearer credential — for example a server’s [service credential](access-policies.md#:~:text=Service%20credential) (`DISC_SERVICE_TOKEN`). `client.withHeaders(headers)` returns one with extra custom headers. Both share the parent’s configuration (base URL, timeout, headers, retries, logger, schema epoch, and a generated client’s builders) but **not** its credentials: neither client’s `setAuthToken` affects the other. A `Transaction` uses the credential of the client that opened it, so concurrent callers with different identities each need their own client. Prefer this over mutating a shared client.
+
+```typescript
+const service = client.withToken(Deno.env.get("DISC_SERVICE_TOKEN")!);
+
+await service.transaction(async tx => {
+  await tx.query("insert Locked { name := <str>$n }", { n: "audit" });
+});
+```
+
 ---
 
 ## Transactions
@@ -434,19 +471,51 @@ const result = await client.transaction(async tx => {
 });
 ```
 
-If the callback throws, the transaction is automatically rolled back and the error is re-thrown.
+If the callback throws, the transaction is automatically rolled back and the error is re-thrown. A commit failure is reported as a failure: `transaction()` rejects, and the transaction is over on the server — nothing is retried and nothing is silently reported as committed.
+
+### A failed statement poisons the transaction
+
+As in PostgreSQL, once a statement inside a transaction fails, the transaction cannot commit. The server marks it aborted; the SDK moves the `Transaction` to the `failed` state and keeps the cause. Catching the error inside the callback does **not** rescue it:
+
+```typescript
+try {
+  await client.transaction(async tx => {
+    try {
+      await tx.query("insert GitRef { program := <Program><uuid>$p, name := <str>$n, target := <str>$t }", vars);
+    } catch (error) {
+      if (error instanceof UniqueViolationError) {
+        // The transaction is already failed: any further tx.query() or tx.commit()
+        // throws DiscTransactionError without contacting the server.
+      }
+      throw error;
+    }
+  });
+} catch (error) {
+  if (error instanceof DiscTransactionError && error.cause instanceof UniqueViolationError) {
+    // Handle the duplicate here, outside the transaction, and retry the whole
+    // transaction if that is what you want.
+  }
+}
+```
+
+Even if the callback swallows the error and returns normally, `transaction()` rolls back and rejects with a `DiscTransactionError` whose `cause` is the statement failure. Catch `UniqueViolationError`, `SerializationFailureError` or `DeadlockError` *outside* `transaction()` and retry the whole transaction, not the statement. Parse and compile errors do not abort a transaction (nothing was sent to PostgreSQL); anything that reached the database and failed — or timed out — does. A request that fails on the network also fails the transaction, because the SDK cannot know whether the statement ran.
+
+### No retries inside transactions
+
+`DiscClientConfig.retries` is ignored for `/transaction/*` and for any request carrying `X-Transaction-ID`: a statement or a `COMMIT` is never re-sent. The retry unit is the whole `transaction()` call.
 
 ### Transaction Methods
 
 Inside the callback, the `tx` object provides:
 
-| Method                           | Description                                           |
-| :------------------------------- | :---------------------------------------------------- |
-| `tx.query<T>(query, variables?)` | Execute a query within the transaction                |
-| `tx.commit()`                    | Explicitly commit (usually unnecessary)               |
-| `tx.rollback()`                  | Explicitly roll back                                  |
-| `tx.getState()`                  | Returns `"active"`, `"committed"`, or `"rolled_back"` |
-| `tx.getId()`                     | Returns the transaction ID string                     |
+| Method                           | Description                                                         |
+| :------------------------------- | :------------------------------------------------------------------ |
+| `tx.query<T>(query, variables?)` | Execute a query within the transaction                              |
+| `tx.commit()`                    | Explicitly commit (usually unnecessary)                             |
+| `tx.rollback()`                  | Explicitly roll back (still allowed on a `failed` transaction)      |
+| `tx.getState()`                  | Returns `"active"`, `"committed"`, `"rolled_back"`, or `"failed"`   |
+| `tx.getFailure()`                | The statement failure that put the transaction in `failed`, if any |
+| `tx.getId()`                     | Returns the transaction ID string                                   |
 
 You do not need to call `tx.commit()` explicitly. The `client.transaction()` wrapper commits automatically when the callback returns without throwing. Explicit commit and rollback are available for advanced control flows.
 
@@ -458,9 +527,11 @@ A `Transaction` transitions through these states:
 active  -->  committed
    |
    +------>  rolled_back
+   |
+   +------>  failed  (a statement or the commit failed; rollback() still allowed)
 ```
 
-Calling `query()`, `commit()`, or `rollback()` on a non-active transaction throws `DiscTransactionError`.
+Calling `query()` or `commit()` on a non-active transaction throws `DiscTransactionError`; on a `failed` transaction its `cause` is the original failure.
 
 ### How It Works
 
@@ -468,8 +539,10 @@ Under the hood, `client.transaction()` performs these steps:
 
 1. `POST /transaction/begin` -- server allocates a transaction and returns a `transactionId`.
 2. Each `tx.query()` sends a `POST /query` with an `X-Transaction-ID` header linking the query to the transaction.
-3. On callback success: `POST /transaction/{id}/commit`.
-4. On callback error: `POST /transaction/{id}/rollback`, then re-throws.
+3. On callback success: `POST /transaction/commit` with the same header.
+4. On callback error: `POST /transaction/rollback`, then re-throws.
+
+On the server, committing an aborted transaction answers `409` `TRANSACTION_ABORTED` and a `COMMIT` PostgreSQL rejects answers `500` with the SQLSTATE; in both cases the id is gone afterwards (a repeated commit is `404`). See [Server → transactions](server.md#:~:text=POST%20/transaction/begin). Transactions are owned by the credential that opened them; a `Transaction` uses the credential of the client that created it (see `withToken` below).
 
 ---
 
@@ -576,12 +649,31 @@ All SDK errors extend `DiscClientError`, which carries a `code` property from th
 | `DiscClientError`      | (varies)            | Base class for all SDK errors                       |
 | `DiscConnectionError`  | `CONNECTION_ERROR`  | Server unreachable, connection refused              |
 | `DiscNetworkError`     | `NETWORK_ERROR`     | Fetch failed, DNS resolution error                  |
-| `DiscProtocolError`    | `PROTOCOL_ERROR`    | Server returned an unexpected response format       |
-| `DiscQueryError`       | `QUERY_ERROR`       | Server returns one or more query errors             |
+| `DiscProtocolError`    | `PROTOCOL_ERROR`    | Any other non-OK response: 413 body too large, 404 unknown transaction, 429, or an unexpected body. Carries `statusCode`. |
+| `DiscQueryError`       | `QUERY_ERROR`       | Server returns one or more query errors. Carries `errors` and `sqlState` (the PostgreSQL SQLSTATE, when the statement reached the database). |
+| `ConstraintViolationError` | `QUERY_ERROR`   | `DiscQueryError` for SQLSTATE class 23; carries `constraint`, `table`, `detail` |
+| `UniqueViolationError` | `QUERY_ERROR`       | `ConstraintViolationError` for 23505 — a duplicate on an `exclusive` constraint or unique index |
+| `ForeignKeyViolationError` | `QUERY_ERROR`   | `ConstraintViolationError` for 23503 — a link to a row that does not exist |
+| `SerializationFailureError` | `QUERY_ERROR`  | `DiscQueryError` for 40001 — retry the whole transaction |
+| `DeadlockError`        | `QUERY_ERROR`       | `DiscQueryError` for 40P01 — retry the whole transaction |
 | `DiscServerError`      | `SERVER_ERROR`      | Server returned a 5xx status code                   |
 | `DiscTimeoutError`     | `TIMEOUT`           | Request exceeds the configured timeout              |
-| `DiscTransactionError` | `TRANSACTION_ERROR` | Operation on a non-active transaction               |
+| `DiscTransactionError` | `TRANSACTION_ERROR` | Operation on a non-active or `failed` transaction; `cause` holds the statement failure |
 | `DiscValidationError`  | `VALIDATION_ERROR`  | A `query()` `options.validate` validator rejects    |
+
+The typed query errors are all `instanceof DiscQueryError` and are chosen from `extensions.sqlState` of the first error in the envelope; `createQueryError(errors)` builds the right one from a raw envelope (for `queryRaw` users). Parse, compile and validation errors have no `sqlState`.
+
+```typescript
+import { UniqueViolationError } from "disc/sdk/mod.ts";
+
+try {
+  await client.query("insert GitRef { program := <Program><uuid>$p, name := <str>$n, target := <str>$t }", vars);
+} catch (error) {
+  if (error instanceof UniqueViolationError) {
+    console.log(error.sqlState, error.constraint); // "23505" "uk_git_ref_program_id_name"
+  } else throw error;
+}
+```
 
 ### Catching Specific Errors
 
@@ -695,6 +787,8 @@ The client retries requests based on the error type:
 | `DiscQueryError`        | No       | Query errors are deterministic                       |
 | `DiscServerError` (5xx) | Yes      | Retried with linear backoff (`retryDelay * attempt`) |
 | `DiscTimeoutError`      | No       | Thrown immediately, not retried                      |
+
+Nothing is retried inside a transaction: `/transaction/*` requests and any request carrying `X-Transaction-ID` run with `retries = 0`, whatever the client is configured with. Retry the whole `transaction()` call instead.
 
 ---
 
@@ -861,17 +955,23 @@ The complete list of exports from `disc/sdk/mod.ts`:
 
 | Export                 | Description                          |
 | :--------------------- | :----------------------------------- |
+| `ConstraintViolationError` | Query error with SQLSTATE class 23 (`constraint`, `table`, `detail`) |
+| `createQueryError`     | Build the typed query error for a raw `errors` envelope |
+| `DeadlockError`        | Query error with SQLSTATE 40P01      |
 | `DiscAuthError`        | Authentication/authorization failure |
 | `DiscClientError`      | Base error class                     |
 | `DiscConnectionError`  | Server unreachable                   |
 | `DiscErrorCode`        | Error code enum                      |
 | `DiscNetworkError`     | Network failure                      |
-| `DiscProtocolError`    | Unexpected response format           |
-| `DiscQueryError`       | Query execution error                |
+| `DiscProtocolError`    | Any other non-OK response (`statusCode`) |
+| `DiscQueryError`       | Query execution error (`errors`, `sqlState`) |
 | `DiscServerError`      | Server 5xx error                     |
 | `DiscTimeoutError`     | Request timeout                      |
-| `DiscTransactionError` | Invalid transaction state            |
+| `DiscTransactionError` | Invalid or failed transaction state (`cause`) |
 | `DiscValidationError`  | Runtime validation failure           |
+| `ForeignKeyViolationError` | Query error with SQLSTATE 23503  |
+| `SerializationFailureError` | Query error with SQLSTATE 40001 |
+| `UniqueViolationError` | Query error with SQLSTATE 23505      |
 
 ### Types
 
@@ -893,7 +993,7 @@ The complete list of exports from `disc/sdk/mod.ts`:
 | `QueryResponse<T>`         | Response envelope (data, errors, extensions)              |
 | `QueryValidator`           | Standard Schema validator applied to query results        |
 | `RegisterData`             | Email, password, optional username/metadata               |
-| `ReviveOptions`            | Options for `reviveResponse` wire-format revival          |
+| `ReviveOptions`            | Options for `reviveResponse` (`dates`, `bigints`, `bytes` dot paths) |
 | `ServerStats`              | Connections, queries, transactions, memory, cache         |
 | `StandardSchemaIssue`      | Single validation issue (Standard Schema spec)            |
 | `StandardSchemaResult`     | Validation result (value or issues; Standard Schema spec) |
@@ -903,7 +1003,7 @@ The complete list of exports from `disc/sdk/mod.ts`:
 | `SubscriptionHandle`       | Subscription id and unsubscribe function                  |
 | `SubscriptionMessage<T>`   | Incoming subscription message (`id`, `type`, `payload`)   |
 | `SubscriptionRequest`      | Subscription request (`id`, `query`, `variables`)         |
-| `TransactionState`         | `"active"`, `"committed"`, `"rolled_back"`                |
+| `TransactionState`         | `"active"`, `"committed"`, `"rolled_back"`, `"failed"`    |
 
 ### Query Builder & Schema
 
@@ -942,12 +1042,13 @@ Wire-format encode/decode helpers.
 
 | Export           | Kind     | Description                                                              |
 | :--------------- | :------- | :----------------------------------------------------------------------- |
-| `encodeBytes`    | function | Encode a byte string for the wire format                                 |
-| `jsonReplacer`   | function | `JSON.stringify` replacer encoding outbound `bigint` as a numeric string |
-| `parseBytes`     | function | Decode a wire-format byte string                                         |
+| `encodeBytes`    | function | Encode a `Uint8Array` as base64 (what `jsonReplacer` does for variables) |
+| `jsonReplacer`   | function | `JSON.stringify` replacer encoding outbound `bigint` as a numeric string and `Uint8Array`/`Buffer` as base64 |
+| `parseBytes`     | function | Decode a wire-format byte string (base64 or `\x` hex)                   |
 | `parseDateTime`  | function | Parse a wire-format datetime value                                       |
 | `parseInt64`     | function | Parse a wire-format 64-bit integer                                       |
-| `reviveResponse` | function | Revive typed values in a raw response payload                            |
+| `reviveResponse` | function | Revive typed values in a raw response payload (`bytes` only at the paths named in `ReviveOptions.bytes`) |
+| `reviveTyped`    | function | Revive `bytes` fields of a result using a generated builder’s `TypeInfo` (what generated clients call) |
 
 ---
 

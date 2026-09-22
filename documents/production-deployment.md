@@ -17,14 +17,16 @@ No restart is required for most infrastructure changes — redeploy the containe
 | `DATABASE_URL`                | `postgresql://localhost:5432/disc` | PostgreSQL connection string. Overrides the bundled instance DSN when set.                                                                     |
 | `DISC_HOST`                   | `localhost`                        | IP address or hostname the HTTP server binds to. Set to `0.0.0.0` to accept external connections.                                              |
 | `DISC_PORT`                   | `5656`                             | TCP port the HTTP server listens on.                                                                                                           |
-| `DISC_MAX_CONNECTIONS`        | `100`                              | Maximum number of PostgreSQL connections in the connection pool.                                                                               |
+| `DISC_MAX_CONNECTIONS`        | `100`                              | Maximum number of PostgreSQL connections in the connection pool that serves `/query` and transactions. Open transactions pin a connection each. |
+| `DISC_MAX_REQUEST_BODY_BYTES` | `4194304` (4 MiB)                  | Cap on the `POST /query` body; larger bodies are HTTP 413. A `disc.toml` `[server] max_request_body_bytes` takes precedence. Raise it for large `bytes` payloads (base64 inflates by 4/3, so the default holds about 3 MiB of raw bytes per request). |
 | `DISC_REQUEST_TIMEOUT`        | `30000`                            | Per-request timeout in milliseconds. Requests exceeding this limit return HTTP 408.                                                            |
 | `DISC_ENABLE_CORS`            | `true`                             | Enable CORS headers on all responses. Set to `false` when behind a proxy that manages CORS.                                                    |
 | `DISC_CORS_ORIGINS`           | _(unrestricted)_                   | Comma-separated list of allowed origins, e.g. `https://app.example.com,https://admin.example.com`. When unset, all origins are permitted.      |
 | `DISC_ENABLE_WEBSOCKETS`      | `true`                             | Enable WebSocket upgrade handling on the same port as HTTP.                                                                                    |
 | `DISC_JWT_SECRET`             | _(none)_                           | Secret used to sign and verify JWT tokens. Required to enable authentication. Must be at least 32 characters.                                  |
 | `DISC_ENABLE_AUTH`            | _(auto)_                           | Explicitly enable (`true`) or disable (`false`) the auth subsystem. When unset, auth is enabled automatically if `DISC_JWT_SECRET` is present. |
-| `DISC_ENABLE_ACCESS_POLICIES` | _(none)_                           | Set to `true` to enforce object-level access policies defined in SDL. Requires `DISC_PROTOCOL=full`.                                           |
+| `DISC_ENABLE_ACCESS_POLICIES` | _(none)_                           | Set to `true` to enforce object-level access policies defined in SDL. Requires the `full` protocol handler (the default).                       |
+| `DISC_SERVICE_TOKEN`          | _(none)_                           | Static bearer token for a trusted backend; bypasses access policies on `/query` and `/transaction/*`. At least 32 bytes or the server refuses to start. Env/CLI only. See [Service credential](#:~:text=Service%20credential%20for%20backends). |
 | `DISC_CACHE_MAX_SIZE`         | `1000`                             | Maximum number of entries in the query compilation and parse caches combined. Reduce on memory-constrained hosts.                              |
 | `DISC_SLOW_QUERY_MS`          | `1000`                             | Queries exceeding this threshold (in milliseconds) are logged as slow queries. Set to `0` to disable.                                          |
 | `DISC_RATE_LIMIT_RPM`         | `0` (disabled)                     | Maximum requests per minute per client IP. Set to `0` to disable rate limiting.                                                                |
@@ -39,7 +41,7 @@ No restart is required for most infrastructure changes — redeploy the containe
 | `DISC_LOG_LEVEL`              | `INFO`                             | Log verbosity. One of `DEBUG`, `INFO`, `WARN`, `ERROR`. Use `WARN` or `ERROR` in production.                                                   |
 | `DISC_LOG_FORMAT`             | `json`                             | Log output format. `json` for structured logging (recommended in production), `text` for human-readable output.                                |
 | `DISC_EXPLAIN_CACHE_TTL`      | `300000`                           | Time-to-live in milliseconds for cached `EXPLAIN` plan results. Default is 5 minutes.                                                          |
-| `DISC_PROTOCOL`               | `simple`                           | Protocol handler to use. `simple` uses simulated compilation; `full` enables the real EdgeQL compiler with access policy support.              |
+| `DISC_PROTOCOL`               | `full`                             | Protocol handler to use. `full` (the default) is the real EdgeQL compiler with access policy support; `simple` is a development-only opt-in that enforces no policies. |
 | `DISC_SHUTDOWN_DRAIN_TIMEOUT` | `30000`                            | Maximum time in milliseconds to wait for in-flight requests to complete before forcing shutdown.                                               |
 
 ---
@@ -261,6 +263,38 @@ DISC_MAX_CONNECTIONS * disc_instance_count <= pg_max_connections - 5
 **PostgreSQL connection overhead:** Each connection consumes approximately 5-10 MB of shared memory on the PostgreSQL side. Do not set `max_connections` higher than needed on the database server.
 
 **PgBouncer:** For high-concurrency deployments, place PgBouncer in transaction mode between Disc and PostgreSQL. Set `DISC_MAX_CONNECTIONS` to the PgBouncer pool size and configure PgBouncer’s `max_client_conn` to match your PostgreSQL limit.
+
+**What happens at the cap.** `DISC_MAX_CONNECTIONS` is enforced even under a cold burst of concurrent requests: callers beyond the cap queue for a free connection (up to 50 waiters, 30 s each) instead of opening extra connections. Past `DISC_MAX_CONNECTIONS + 50` concurrent callers the request fails with `Connection pool wait queue is full`. Open transactions pin a connection from this pool until they commit or roll back, so size the pool for your peak concurrent transactions plus your peak concurrent queries. The bundled PostgreSQL is configured with `max_connections = 100` (50 on hosts with less than 1 GiB of RAM).
+
+---
+
+## Service credential for backends
+
+A trusted backend (your API server, a job runner) can talk to Disc without a user session and without access-policy filtering by presenting the **service credential**: a static token configured on the server and sent as `Authorization: Bearer <token>` on `POST /query` and `POST /transaction/*`. It is the supported alternative to minting JWTs for your own backend or to the admin-only bypass header. Full semantics are in [Access Policies → Service credential](access-policies.md#:~:text=Service%20credential).
+
+```bash
+# Generate a token (at least 32 bytes; the server refuses shorter ones).
+openssl rand -base64 48
+
+# Configure it on the server: env var, or --service-token (visible in `ps`; prefer the env var).
+DISC_SERVICE_TOKEN='…' disc serve
+
+# Use it from the backend.
+curl -X POST https://disc.internal:5656/query \
+  -H "Authorization: Bearer $DISC_SERVICE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "select Locked { id }"}'
+```
+
+Operational rules:
+
+- **Env or CLI only, never `disc.toml`** — that file is normally committed.
+- **TLS or loopback.** The token is a long-lived bearer with full policy bypass. Send it only over TLS, or over a loopback/private interface (`DISC_HOST=127.0.0.1`, a Unix-socket-only network, a private VPC). Keep it out of browsers and out of anything a user can read.
+- **Rotate by restart.** SIGHUP does not change or drop it. To rotate, deploy the new value and restart.
+- **Scope.** Honored on `/query` and `/transaction/*` only — not REST (`/api/*`), WebSocket, `/schema`, `/stats`, extension routes or the binary listener. There it is an invalid JWT (anonymous, or 401 under `DISC_REQUIRE_AUTH=true`).
+- **Works with auth off or on.** The service needs no JWT and is accepted even when `DISC_ENABLE_AUTH=false` or no JWT secret is configured, and it passes `DISC_REQUIRE_AUTH=true`.
+- **Boot warning** when the token is set but `DISC_ENABLE_ACCESS_POLICIES` is off — the bypass then means nothing, because nothing is enforced for anyone.
+- **Observability.** `/stats` → `queries.bypassed` counts bypassed `/query` requests; a debug log line `Service credential query` carries a query hash and request id. The token never appears in `/config`, `/stats`, `/`, logs or error messages.
 
 ---
 

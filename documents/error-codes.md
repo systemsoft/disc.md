@@ -2,20 +2,46 @@
 
 > **Note:** This file is hand-maintained. When the error hierarchy in [`lib/errors.ts`](https://github.com/systemsoft/disc/blob/primary/lib/errors.ts) or the protocol code map in [`protocol/binary-server.ts`](https://github.com/systemsoft/disc/blob/primary/protocol/binary-server.ts) changes, update this document to match. Ports the request in [geldata/gel#6648](https://github.com/geldata/gel/issues/6648).
 
-Disc surfaces errors in two layers:
+Disc surfaces errors in three layers:
 
 1. **Disc error classes** — TypeScript subclasses of `DiscError` raised by the parser, compiler, runtime, and protocol layers. These are what your code catches when calling Disc as a library.
-2. **Gel wire protocol error codes** — 32-bit numeric codes returned to clients over the binary protocol. Disc maps each error class to one of these codes for compatibility with the existing Gel client SDKs.
+2. **HTTP error envelopes** — what `POST /query` and `POST /transaction/*` return, with a string `extensions.code` and, for failures inside PostgreSQL, the SQLSTATE. The TypeScript SDK turns these into its own [error classes](client-sdk.md#:~:text=Error%20Hierarchy).
+3. **Gel wire protocol error codes** — 32-bit numeric codes returned to clients over the binary protocol. Disc maps each error class to one of these codes for compatibility with the existing Gel client SDKs.
 
-When you receive an error from a Disc client SDK, the `code` field is a protocol code (column 2 below); the `name` field corresponds to a Disc error class (column 1).
+When you receive an error from a Gel client SDK, the `code` field is a protocol code (column 2 below); the `name` field corresponds to a Disc error class (column 1).
 
 ---
 
 ## Table of Contents
 
+- [HTTP Error Envelopes](#:~:text=HTTP%20Error%20Envelopes)
 - [Disc Error Classes](#:~:text=Protocol%20Code%20Mapping-,Disc%20Error%20Classes,-All%20errors%20inherit)
 - [Gel Protocol Error Codes](#:~:text=to%20AvailabilityError.-,Gel%20Protocol%20Error%20Codes,-These%20are%20the)
 - [Class → Protocol Code Mapping](#:~:text=AccessPolicyError-,Class%20%E2%86%92%20Protocol%20Code%20Mapping,-Performed%20by%20mapErrorToGelCode)
+
+---
+
+## HTTP Error Envelopes
+
+A failed `POST /query` answers `{ "errors": [{ "message", "extensions": { "code", … } }] }`. The HTTP status is `400` for every query error, `408` for a timeout and `500` for an internal error; `413` (body too large), `401`/`403`, `404` and `429` come from the HTTP layer with a plain `{ "error": "…" }` body.
+
+| `extensions.code`   | Status | Meaning                                                                                                                                    | Aborts an open transaction? |
+| :------------------ | :----- | :----------------------------------------------------------------------------------------------------------------------------------------- | :-------------------------- |
+| `VALIDATION_ERROR`  | 400    | Malformed request, or a variable problem: a missing variable (`Missing variable: the query uses $x, …`), an unknown one (`Unknown variable: $typo was provided, …`), or an invalid `bytes` value (not base64 / `\x` hex). Nothing reached the database. | No                          |
+| `SYNTAX_ERROR`      | 400    | The query does not start with a valid statement or has unbalanced braces.                                                                   | No                          |
+| `PARSE_ERROR`       | 400    | The EdgeQL parser rejected the query.                                                                                                       | No                          |
+| `COMPILATION_ERROR` | 400    | The compiler rejected it: unknown type or function, unresolvable conflict target, a policy that denies the operation, `<bytes>` from JSON… | No                          |
+| `READ_ONLY_MODE`    | 400    | The server is read-only and the query contains a write (anywhere in it, including nested in `with`/`for`/`select (…)`).                    | No                          |
+| `QUERY_TOO_LARGE`   | 400    | Query text over 100 KB.                                                                                                                     | No                          |
+| `EXECUTION_ERROR`   | 400    | PostgreSQL rejected the statement. `extensions.sqlState` is the SQLSTATE; `constraint`, `table` and `detail` are present when PostgreSQL sent them. | **Yes**                     |
+| `TIMEOUT`           | 408    | The request exceeded `DISC_REQUEST_TIMEOUT`. The statement’s outcome is unknown.                                                            | **Yes**                     |
+| `INTERNAL_ERROR`    | 500    | The handler crashed.                                                                                                                        | **Yes**                     |
+| `TRANSACTION_ABORTED` | 409  | `POST /transaction/commit` on a transaction poisoned by an earlier failure; it has been rolled back and the id is gone.                     | —                           |
+| `WARNING`           | 200    | Not an error (dry-run mode).                                                                                                                | No                          |
+
+SQLSTATEs worth matching on: `23505` unique violation (a duplicate on an `exclusive` constraint or unique index; `constraint` names it), `23503` foreign-key violation, `23514` check violation (a `regexp`, `one_of`, `min_value`… constraint), `40001` serialization failure and `40P01` deadlock (retry the whole transaction). The SDK maps these to `UniqueViolationError`, `ForeignKeyViolationError`, `ConstraintViolationError`, `SerializationFailureError` and `DeadlockError`, all `instanceof DiscQueryError` with `.sqlState`.
+
+`extensions.queryHash` on every response is the SHA-256 hex digest of the query text.
 
 ---
 
@@ -37,6 +63,7 @@ All errors inherit from the abstract base class `DiscError`. Every error carries
 | `DatabaseRegistryError`  | A registry-level failure: branch not found, branch already exists, registry corrupted.                                                                                                                                                | Always non-recoverable — no automatic retry.                                                            |
 | `DatabaseExecutionError` | A PostgreSQL error wrapped with the originating SQL. Has fields `sql: string` and `cause: Error`.                                                                                                                                     | The `cause.message` substring (`constraint`, `cardinality`) determines which protocol code is returned. |
 | `QueryTimeoutError`      | Query exceeded its configured timeout. Has fields `sql: string` and `timeoutMs: number`. Message is always `"Query timed out after Nms"`.                                                                                             | Maps to `AvailabilityError`.                                                                            |
+| `TransactionAbortedError` | `commitTransaction()` was called on a transaction that an earlier failed statement had aborted; the manager rolled it back and removed it. Has `transactionId`.                                                                    | `409` `TRANSACTION_ABORTED` over HTTP.                                                                  |
 
 ---
 

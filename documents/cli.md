@@ -209,6 +209,7 @@ disc serve [options]
 | `--no-ui`                  | Start server without serving UI assets                                | `false`     |
 | `--require-auth`           | Reject unauthenticated requests on protected routes ([gh/geldata#5234](https://github.com/geldata/gel/issues/5234)) | `false`     |
 | `--read-only`              | Refuse INSERT/UPDATE/DELETE/DDL at the AST level                      | `false`     |
+| `--service-token <tok>`    | Static bearer token for a trusted backend (≥ 32 bytes; bypasses access policies on `/query` and `/transaction/*`). Visible in `ps` — prefer `DISC_SERVICE_TOKEN`. See [Access Policies → Service credential](access-policies.md#:~:text=Service%20credential). |             |
 | `--trust-proxy`            | Trust `X-Forwarded-For` / `X-Forwarded-Proto` headers for client IP   | `false`     |
 
 ### Examples
@@ -256,6 +257,8 @@ disc serve --host 0.0.0.0
 - `DISC_TLS_KEY_ENV` -- Name of an env var holding PEM key contents
 - `DISC_REQUIRE_AUTH` -- Set to `"true"` / `"1"` / `"yes"` to require auth on protected routes (mirrors `--require-auth`)
 - `DISC_READ_ONLY` -- Set to `"true"` / `"1"` / `"yes"` to enable read-only mode (mirrors `--read-only`)
+- `DISC_SERVICE_TOKEN` -- Service credential for a trusted backend (mirrors `--service-token`); at least 32 bytes or `serve` refuses to start. Env/CLI only, never `disc.toml`
+- `DISC_MAX_REQUEST_BODY_BYTES` -- Cap on the `POST /query` body in bytes (default 4 MiB); `disc.toml` `[server] max_request_body_bytes` takes precedence
 - `DISC_TRUST_PROXY` -- Set to `"true"` / `"1"` / `"yes"` to trust forwarded headers (mirrors `--trust-proxy`)
 - `DISC_ENABLE_DATA_WATCH` -- Set to `"false"` to disable the live-data subscription endpoint (`/admin/data-watch`); default `true`
 - `DISC_ENABLE_REST` -- Set to `"false"` to disable the schema-derived REST surface; default `true`

@@ -4,6 +4,8 @@ Disc provides a comprehensive standard library of built-in functions available i
 
 This reference documents every function registered in the Disc compiler. Functions are organized by category.
 
+Only registered functions compile. A call to a name the compiler does not know — a built-in (with or without `std::`), an SDL `function` declaration (`f` / `default::f`, or `mod::f` in another module), or an extension or custom function — is a compile error naming it. PostgreSQL-native names such as `lower()`, `coalesce()` or `now()` are not passed through; use `str_lower()`, `??` and `datetime_current()`.
+
 **See also:** [EdgeQL](edgeql.md) | [Schema](schema.md) | [CLI](cli.md)
 
 ---
@@ -1857,6 +1859,45 @@ select bytes_to_str(b'hello', 'UTF8');
 
 ---
 
+### `base64_encode`
+
+Encodes a byte string as base64 (RFC 4648, standard alphabet, padded, no line breaks — the same form `bytes` takes on the JSON wire).
+
+```
+std::base64_encode(data: bytes) -> str
+```
+
+**Example:**
+
+```edgeql
+select std::base64_encode(<bytes>$blob);
+# => 'H4sIAAAAAAAA…'
+```
+
+**SQL equivalent:** `std_base64_encode(...)` (Disc stdlib function: `translate(encode(data, 'base64'), E'\n', '')`)
+
+---
+
+### `base64_decode`
+
+Decodes base64 text into a byte string. Whitespace in the input is ignored. This is how `bytes` carried inside a `<json>` variable are turned back into `bytes` (a `<bytes>` cast from JSON is a compile error pointing here):
+
+```
+std::base64_decode(data: str) -> bytes
+```
+
+**Example:**
+
+```edgeql
+with rows := <json>$rows
+for item in json_array_unpack(rows)
+union (insert GitObject { content := std::base64_decode(<str>item['content']), … });
+```
+
+**SQL equivalent:** `std_base64_decode(...)` (Disc stdlib function over `decode(..., 'base64')`)
+
+---
+
 ## Range Functions
 
 Range functions operate on range types, which represent a span of values with optional inclusive/exclusive bounds.
@@ -1949,7 +1990,7 @@ select range_unpack(range(1, 5));
 # => {1, 2, 3, 4}
 ```
 
-**SQL equivalent:** `UNNEST(int4range(1, 5))`
+**SQL equivalent:** `generate_series(lower(int4range(1, 5)), upper(int4range(1, 5)) - 1)` — integer ranges only (PostgreSQL has no `unnest(range)`). Usable as a `for` iterator.
 
 ---
 
@@ -2209,7 +2250,7 @@ order by fts::rank('database migration') desc;
 | Datetime         | `datetime_current`, `datetime_of_transaction`, `datetime_of_statement`, `datetime_get`, `datetime_truncate`, `to_datetime`, `to_duration`                                                                            |
 | Calendar         | `cal_to_local_date`, `cal_to_local_time`, `cal_to_local_datetime`                                                                                                                                                    |
 | Window           | `row_number`, `rank`, `dense_rank`, `ntile`, `lag`, `lead`, `first_value`, `last_value`                                                                                                                              |
-| Bytes            | `bytes_get_bit`, `bytes_to_str`                                                                                                                                                                                      |
+| Bytes            | `bytes_get_bit`, `bytes_to_str`, `std::base64_encode`, `std::base64_decode`                                                                                                                                                                                   |
 | Range            | `range`, `range_get_lower`, `range_get_upper`, `range_is_empty`, `range_unpack`, `range_is_inclusive_lower`, `range_is_inclusive_upper`, `multirange`, `overlaps`, `contains` (overload)                             |
 | Sequence         | `sequence_next`, `sequence_reset`                                                                                                                                                                                    |
 | Introspection    | `schema::types`, `schema::get_type`, `schema::functions`                                                                                                                                                             |

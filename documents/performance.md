@@ -50,7 +50,7 @@ See [Schema → Indexes](schema.md#:~:text=the%20same%20name.-,Indexes,-Indexes%
 
 ### Choosing what to index
 
-Index the columns that appear in `filter`, `order by`, and `group by` clauses on hot queries. Foreign-key columns generated for `link` properties are not indexed automatically — add an explicit `index on (.author)` if you query `Post filter .author = <uuid>$id`. Don’t over-index: every additional index slows down writes and consumes disk.
+Index the columns that appear in `filter`, `order by`, and `group by` clauses on hot queries. The foreign-key column of every single link **is** indexed automatically (`idx_<table>_<link>_id`), so `Post filter .author = <uuid>$id` already uses an index and a plain `index on (.author)` is skipped as redundant. Composite lookups need their own index: `filter .author = <uuid>$a and .status = <str>$s` wants `index on ((.author, .status))`, and a type-level `constraint exclusive on ((.program, .object_id))` gives you a unique composite index for free that `filter .program.id = <uuid>$p and .object_id in array_unpack(<array<str>>$ids)` will use once the table has enough rows for the planner to prefer it. Don’t over-index: every additional index slows down writes and consumes disk.
 
 ### Verifying an index is used
 
@@ -136,7 +136,7 @@ Caches are flushed on schema reload (SIGHUP, `disc migrate`, or admin-UI schema 
 
 ## Connection Pool
 
-The PostgreSQL connection pool (`lib/connection-pool.ts`) sizes itself between `minConnections` (default 2) and `maxConnections` (default 10 inside the library, 100 on the server). The server’s pool is configured via `DISC_MAX_CONNECTIONS`.
+The PostgreSQL connection pool (`lib/connection-pool.ts`) sizes itself between `minConnections` (default 2) and `maxConnections` (default 10 inside the library, 100 on the server). The server’s pool is configured via `DISC_MAX_CONNECTIONS`, and it is the pool the query handler and open transactions draw from — an open transaction pins one connection until it commits or rolls back. The cap is enforced under concurrent load: callers beyond it queue (up to `maxWaitQueueSize`, each for at most `connectionTimeout`) rather than opening extra connections, and past the queue limit `acquire()` throws `Connection pool wait queue is full`.
 
 ### Sizing
 
