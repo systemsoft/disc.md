@@ -101,7 +101,7 @@ Executes an EdgeQL query and returns the result data directly. Throws `DiscQuery
 
 The optional `options` argument accepts `{ revive, validate }`: `revive` auto-converts wire-encoded scalars (e.g. ISO date strings into `Date`), and `validate` runs a validator against the result, throwing `DiscValidationError` if it rejects.
 
-`bigint` variables (the type codegen assigns to `int64` fields) are supported directly — the client encodes them as numeric strings on the wire, so `{ count: 0n }` works where plain `JSON.stringify` would throw "Do not know how to serialize a BigInt". `Uint8Array` variables are sent as base64 automatically, at any depth — see [Bytes](#:~:text=Bytes) below.
+`bigint` variables (the type codegen assigns to `int64` fields) are supported directly — the client encodes them as numeric strings on the wire, so `{ count: 0n }` works where plain `JSON.stringify` would throw "Do not know how to serialize a BigInt". `Uint8Array` variables are sent as base64 automatically, at any depth — see [Bytes](#:~:text=bytes%20is%20base64%20on%20the%20wire) below.
 
 Variables are bound by name, so their key order is irrelevant; a missing or extra variable is a 400 `VALIDATION_ERROR` naming it.
 
@@ -487,6 +487,7 @@ try {
         // The transaction is already failed: any further tx.query() or tx.commit()
         // throws DiscTransactionError without contacting the server.
       }
+
       throw error;
     }
   });
@@ -508,14 +509,14 @@ Even if the callback swallows the error and returns normally, `transaction()` ro
 
 Inside the callback, the `tx` object provides:
 
-| Method                           | Description                                                         |
-| :------------------------------- | :------------------------------------------------------------------ |
-| `tx.query<T>(query, variables?)` | Execute a query within the transaction                              |
-| `tx.commit()`                    | Explicitly commit (usually unnecessary)                             |
-| `tx.rollback()`                  | Explicitly roll back (still allowed on a `failed` transaction)      |
-| `tx.getState()`                  | Returns `"active"`, `"committed"`, `"rolled_back"`, or `"failed"`   |
+| Method                           | Description                                                        |
+| :------------------------------- | :----------------------------------------------------------------- |
+| `tx.query<T>(query, variables?)` | Execute a query within the transaction                             |
+| `tx.commit()`                    | Explicitly commit (usually unnecessary)                            |
+| `tx.rollback()`                  | Explicitly roll back (still allowed on a `failed` transaction)     |
+| `tx.getState()`                  | Returns `"active"`, `"committed"`, `"rolled_back"`, or `"failed"`  |
 | `tx.getFailure()`                | The statement failure that put the transaction in `failed`, if any |
-| `tx.getId()`                     | Returns the transaction ID string                                   |
+| `tx.getId()`                     | Returns the transaction ID string                                  |
 
 You do not need to call `tx.commit()` explicitly. The `client.transaction()` wrapper commits automatically when the callback returns without throwing. Explicit commit and rollback are available for advanced control flows.
 
@@ -528,7 +529,7 @@ active  -->  committed
    |
    +------>  rolled_back
    |
-   +------>  failed  (a statement or the commit failed; rollback() still allowed)
+   +------>  failed (a statement or the commit failed; rollback() still allowed)
 ```
 
 Calling `query()` or `commit()` on a non-active transaction throws `DiscTransactionError`; on a `failed` transaction its `cause` is the original failure.
@@ -661,7 +662,7 @@ All SDK errors extend `DiscClientError`, which carries a `code` property from th
 | `DiscTransactionError` | `TRANSACTION_ERROR` | Operation on a non-active or `failed` transaction; `cause` holds the statement failure |
 | `DiscValidationError`  | `VALIDATION_ERROR`  | A `query()` `options.validate` validator rejects    |
 
-The typed query errors are all `instanceof DiscQueryError` and are chosen from `extensions.sqlState` of the first error in the envelope; `createQueryError(errors)` builds the right one from a raw envelope (for `queryRaw` users). Parse, compile and validation errors have no `sqlState`.
+The typed query errors are all `instanceof DiscQueryError` and are chosen from `extensions.sqlState` of the first error in the envelope; `createQueryError(errors)` builds the right one from a raw envelope (for `queryRaw` users). Parse, compile, and validation errors have no `sqlState`.
 
 ```typescript
 import { UniqueViolationError } from "disc/sdk/mod.ts";
@@ -953,57 +954,57 @@ The complete list of exports from `disc/sdk/mod.ts`:
 
 ### Error Classes
 
-| Export                 | Description                          |
-| :--------------------- | :----------------------------------- |
-| `ConstraintViolationError` | Query error with SQLSTATE class 23 (`constraint`, `table`, `detail`) |
-| `createQueryError`     | Build the typed query error for a raw `errors` envelope |
-| `DeadlockError`        | Query error with SQLSTATE 40P01      |
-| `DiscAuthError`        | Authentication/authorization failure |
-| `DiscClientError`      | Base error class                     |
-| `DiscConnectionError`  | Server unreachable                   |
-| `DiscErrorCode`        | Error code enum                      |
-| `DiscNetworkError`     | Network failure                      |
-| `DiscProtocolError`    | Any other non-OK response (`statusCode`) |
-| `DiscQueryError`       | Query execution error (`errors`, `sqlState`) |
-| `DiscServerError`      | Server 5xx error                     |
-| `DiscTimeoutError`     | Request timeout                      |
-| `DiscTransactionError` | Invalid or failed transaction state (`cause`) |
-| `DiscValidationError`  | Runtime validation failure           |
-| `ForeignKeyViolationError` | Query error with SQLSTATE 23503  |
-| `SerializationFailureError` | Query error with SQLSTATE 40001 |
-| `UniqueViolationError` | Query error with SQLSTATE 23505      |
+| Export                      | Description                                                          |
+| :-------------------------- | :------------------------------------------------------------------- |
+| `ConstraintViolationError`  | Query error with SQLSTATE class 23 (`constraint`, `table`, `detail`) |
+| `createQueryError`          | Build the typed query error for a raw `errors` envelope              |
+| `DeadlockError`             | Query error with SQLSTATE 40P01                                      |
+| `DiscAuthError`             | Authentication/authorization failure                                 |
+| `DiscClientError`           | Base error class                                                     |
+| `DiscConnectionError`       | Server unreachable                                                   |
+| `DiscErrorCode`             | Error code enum                                                      |
+| `DiscNetworkError`          | Network failure                                                      |
+| `DiscProtocolError`         | Any other non-OK response (`statusCode`)                             |
+| `DiscQueryError`            | Query execution error (`errors`, `sqlState`)                         |
+| `DiscServerError`           | Server 5xx error                                                     |
+| `DiscTimeoutError`          | Request timeout                                                      |
+| `DiscTransactionError`      | Invalid or failed transaction state (`cause`)                        |
+| `DiscValidationError`       | Runtime validation failure                                           |
+| `ForeignKeyViolationError`  | Query error with SQLSTATE 23503                                      |
+| `SerializationFailureError` | Query error with SQLSTATE 40001                                      |
+| `UniqueViolationError`      | Query error with SQLSTATE 23505                                      |
 
 ### Types
 
-| Export                     | Description                                               |
-| :------------------------- | :-------------------------------------------------------- |
-| `AuthManagerOptions`       | Auth manager configuration                                |
-| `AuthResponse`             | Login/register response (user, session, token)            |
-| `AuthTokens`               | JWT token and optional refresh token                      |
-| `AuthUser`                 | User profile (id, email, username, metadata)              |
-| `CacheStats`               | Cache hit/miss/eviction stats                             |
-| `DiscClientConfig`         | Client constructor options                                |
-| `HealthStatus`             | Server health (status, database, pool)                    |
-| `IsolationLevel`           | `"read_committed"`, `"repeatable_read"`, `"serializable"` |
-| `LoginCredentials`         | Email/username and password                               |
-| `QueryError`               | Single query error from the server                        |
-| `QueryExtensions`          | Timing info (`parseMs`, `compileMs`, `executeMs`)         |
-| `QueryOptions`             | Per-query options (e.g. validator for runtime checks)     |
-| `QueryRequest`             | Query payload (query, variables, operationName)           |
-| `QueryResponse<T>`         | Response envelope (data, errors, extensions)              |
-| `QueryValidator`           | Standard Schema validator applied to query results        |
-| `RegisterData`             | Email, password, optional username/metadata               |
+| Export                     | Description                                                          |
+| :------------------------- | :------------------------------------------------------------------- |
+| `AuthManagerOptions`       | Auth manager configuration                                           |
+| `AuthResponse`             | Login/register response (user, session, token)                       |
+| `AuthTokens`               | JWT token and optional refresh token                                 |
+| `AuthUser`                 | User profile (id, email, username, metadata)                         |
+| `CacheStats`               | Cache hit/miss/eviction stats                                        |
+| `DiscClientConfig`         | Client constructor options                                           |
+| `HealthStatus`             | Server health (status, database, pool)                               |
+| `IsolationLevel`           | `"read_committed"`, `"repeatable_read"`, `"serializable"`            |
+| `LoginCredentials`         | Email/username and password                                          |
+| `QueryError`               | Single query error from the server                                   |
+| `QueryExtensions`          | Timing info (`parseMs`, `compileMs`, `executeMs`)                    |
+| `QueryOptions`             | Per-query options (e.g. validator for runtime checks)                |
+| `QueryRequest`             | Query payload (query, variables, operationName)                      |
+| `QueryResponse<T>`         | Response envelope (data, errors, extensions)                         |
+| `QueryValidator`           | Standard Schema validator applied to query results                   |
+| `RegisterData`             | Email, password, optional username/metadata                          |
 | `ReviveOptions`            | Options for `reviveResponse` (`dates`, `bigints`, `bytes` dot paths) |
-| `ServerStats`              | Connections, queries, transactions, memory, cache         |
-| `StandardSchemaIssue`      | Single validation issue (Standard Schema spec)            |
-| `StandardSchemaResult`     | Validation result (value or issues; Standard Schema spec) |
-| `StandardSchemaV1`         | Standard Schema v1 validator interface                    |
-| `SubscriptionCallbacks<T>` | `onData`, `onError`, `onComplete` handlers                |
-| `SubscriptionClientConfig` | Subscription client options                               |
-| `SubscriptionHandle`       | Subscription id and unsubscribe function                  |
-| `SubscriptionMessage<T>`   | Incoming subscription message (`id`, `type`, `payload`)   |
-| `SubscriptionRequest`      | Subscription request (`id`, `query`, `variables`)         |
-| `TransactionState`         | `"active"`, `"committed"`, `"rolled_back"`, `"failed"`    |
+| `ServerStats`              | Connections, queries, transactions, memory, cache                    |
+| `StandardSchemaIssue`      | Single validation issue (Standard Schema spec)                       |
+| `StandardSchemaResult`     | Validation result (value or issues; Standard Schema spec)            |
+| `StandardSchemaV1`         | Standard Schema v1 validator interface                               |
+| `SubscriptionCallbacks<T>` | `onData`, `onError`, `onComplete` handlers                           |
+| `SubscriptionClientConfig` | Subscription client options                                          |
+| `SubscriptionHandle`       | Subscription id and unsubscribe function                             |
+| `SubscriptionMessage<T>`   | Incoming subscription message (`id`, `type`, `payload`)              |
+| `SubscriptionRequest`      | Subscription request (`id`, `query`, `variables`)                    |
+| `TransactionState`         | `"active"`, `"committed"`, `"rolled_back"`, `"failed"`               |
 
 ### Query Builder & Schema
 
@@ -1040,15 +1041,15 @@ Schema-declaration type exports: `FieldMarker`, `FieldType`, `IsLink`, `Link`, `
 
 Wire-format encode/decode helpers.
 
-| Export           | Kind     | Description                                                              |
-| :--------------- | :------- | :----------------------------------------------------------------------- |
-| `encodeBytes`    | function | Encode a `Uint8Array` as base64 (what `jsonReplacer` does for variables) |
+| Export           | Kind     | Description                                                                                                  |
+| :--------------- | :------- | :----------------------------------------------------------------------------------------------------------- |
+| `encodeBytes`    | function | Encode a `Uint8Array` as base64 (what `jsonReplacer` does for variables)                                     |
 | `jsonReplacer`   | function | `JSON.stringify` replacer encoding outbound `bigint` as a numeric string and `Uint8Array`/`Buffer` as base64 |
-| `parseBytes`     | function | Decode a wire-format byte string (base64 or `\x` hex)                   |
-| `parseDateTime`  | function | Parse a wire-format datetime value                                       |
-| `parseInt64`     | function | Parse a wire-format 64-bit integer                                       |
-| `reviveResponse` | function | Revive typed values in a raw response payload (`bytes` only at the paths named in `ReviveOptions.bytes`) |
-| `reviveTyped`    | function | Revive `bytes` fields of a result using a generated builder’s `TypeInfo` (what generated clients call) |
+| `parseBytes`     | function | Decode a wire-format byte string (base64 or `\x` hex)                                                        |
+| `parseDateTime`  | function | Parse a wire-format datetime value                                                                           |
+| `parseInt64`     | function | Parse a wire-format 64-bit integer                                                                           |
+| `reviveResponse` | function | Revive typed values in a raw response payload (`bytes` only at the paths named in `ReviveOptions.bytes`)     |
+| `reviveTyped`    | function | Revive `bytes` fields of a result using a generated builder’s `TypeInfo` (what generated clients call)       |
 
 ---
 

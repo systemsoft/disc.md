@@ -24,7 +24,7 @@ disc status   # Show instance status
 | `--host <host>`            | Bind address (default: `localhost`)         |
 | `--jwt-secret <key>`       | Enable authentication with this signing key |
 | `--port <port>`            | HTTP port (default: `5656`)                 |
-| `--service-token <tok>`    | Static bearer token for a trusted backend (≥ 32 bytes; bypasses access policies on `/query` and `/transaction/*`). Visible in `ps` — prefer `DISC_SERVICE_TOKEN`. See [Service credential](access-policies.md#:~:text=Service%20credential). |
+| `--service-token <tok>`    | Static bearer token for a trusted backend (≥ 32 bytes; bypasses access policies on `/query` and `/transaction/*`). Visible in `ps` — prefer `DISC_SERVICE_TOKEN`. See [Service credential](access-policies.md#:~:text=or%20%22restrictive%22%0A%7D\)%3B-,Service%20credential,-A%20trusted%20backend). |
 | `--tls-cert <path>`        | Path to TLS certificate for HTTPS           |
 | `--tls-key <path>`         | Path to TLS private key                     |
 
@@ -93,7 +93,7 @@ All server configuration can be set via environment variables. The `createServer
 | `DISC_ENABLE_AUTH`            | (auto)  | Explicit auth toggle (`true`/`false`)                           |
 | `DISC_JWT_SECRET`             | (none)  | JWT signing secret. Enables auth when set.                      |
 | `DISC_REQUIRE_AUTH`           | `false` | Gate `/query`, `/schema*`, `/migrations`, `/stats`, `/metrics`. |
-| `DISC_SERVICE_TOKEN`          | (none)  | Static bearer token for a trusted backend. Honored on `/query` and `/transaction/*` only; the caller bypasses every access policy. At least 32 bytes or the server refuses to start. Env/CLI only — never `disc.toml`. See [Service credential](access-policies.md#:~:text=Service%20credential). |
+| `DISC_SERVICE_TOKEN`          | (none)  | Static bearer token for a trusted backend. Honored on `/query` and `/transaction/*` only; the caller bypasses every access policy. At least 32 bytes or the server refuses to start. Env/CLI only — never `disc.toml`. See [Service credential](access-policies.md#:~:text=or%20%22restrictive%22%0A%7D\)%3B-,Service%20credential,-A%20trusted%20backend). |
 | `DISC_READ_ONLY`              | `false` | Reject `INSERT`/`UPDATE`/`DELETE`/`CONFIGURE` at AST level, including mutations nested in `with`, `for` and `select (…)`. |
 
 #### CORS
@@ -338,11 +338,11 @@ The body is capped at `maxRequestBodyBytes` (4 MiB by default; `DISC_MAX_REQUEST
 
 Optional headers:
 
-| Header                          | Description                                                                                                                                          |
-| :------------------------------ | :--------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Authorization: Bearer <token>` | A user JWT, or the [service credential](access-policies.md#:~:text=Service%20credential) (`DISC_SERVICE_TOKEN`), which bypasses access policies. |
-| `X-Transaction-ID`              | Run the query inside a transaction opened with `POST /transaction/begin`.                                                                            |
-| `X-Disc-Apply-Access-Policies: false` | Per-request policy bypass; honored only when the JWT’s roles include `admin` or `superuser`.                                                   |
+| Header                                | Description                                                                                                                                      |
+| :------------------------------------ | :----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Authorization: Bearer <token>`       | A user JWT, or the [service credential](access-policies.md#:~:text=or%20%22restrictive%22%0A%7D\)%3B-,Service%20credential,-A%20trusted%20backend) (`DISC_SERVICE_TOKEN`), which bypasses access policies. |
+| `X-Transaction-ID`                    | Run the query inside a transaction opened with `POST /transaction/begin`.                                                                        |
+| `X-Disc-Apply-Access-Policies: false` | Per-request policy bypass; honored only when the JWT’s roles include `admin` or `superuser`.                                                     |
 
 **Successful response (200):**
 
@@ -440,9 +440,9 @@ The query endpoint validates requests before execution. Validation checks includ
 
 ### `POST /transaction/begin`, `POST /transaction/commit`, `POST /transaction/rollback`
 
-The wire protocol behind [`client.transaction()`](client-sdk.md#:~:text=Transactions). `begin` takes an optional JSON body `{ "isolationLevel": "read committed" | "repeatable read" | "serializable", "readOnly": boolean }` and answers `{ "transactionId": "…" }`. Queries join the transaction by sending that id in the `X-Transaction-ID` header on `POST /query`; `commit` and `rollback` take the same header and answer `{ "ok": true }`.
+The wire protocol behind [`client.transaction()`](client-sdk.md#:~:text=%22audit%22%20%7D\)%3B%0A%7D\)%3B-,Transactions,-Transactions%20execute%20multiple). `begin` takes an optional JSON body `{ "isolationLevel": "read committed" | "repeatable read" | "serializable", "readOnly": boolean }` and answers `{ "transactionId": "…" }`. Queries join the transaction by sending that id in the `X-Transaction-ID` header on `POST /query`; `commit` and `rollback` take the same header and answer `{ "ok": true }`.
 
-Transactions are owned by the caller that opened them (the JWT’s user id, or `"service"` for the [service credential](access-policies.md#:~:text=Service%20credential)); another caller’s query, commit or rollback against that id is `403`. Transaction state lives in the server process, so behind a load balancer a client’s transaction requests must be pinned to one replica.
+Transactions are owned by the caller that opened them (the JWT’s user id, or `"service"` for the [service credential](access-policies.md#:~:text=or%20%22restrictive%22%0A%7D\)%3B-,Service%20credential,-A%20trusted%20backend)); another caller’s query, commit or rollback against that id is `403`. Transaction state lives in the server process, so behind a load balancer a client’s transaction requests must be pinned to one replica.
 
 **A failed statement poisons the transaction**, as in PostgreSQL. Any statement that reaches PostgreSQL and fails — or times out, or crashes the handler — marks the transaction aborted; parse, compile and validation errors do not, because nothing was sent. A `commit` of an aborted transaction rolls it back, forgets the id and answers `409`:
 
@@ -575,7 +575,7 @@ Detailed server statistics for monitoring and debugging.
 }
 ```
 
-`queries.bypassed` counts `/query` requests that ran with access policies bypassed — by the [service credential](access-policies.md#:~:text=Service%20credential) or by an admin’s `X-Disc-Apply-Access-Policies: false` header. `queries.total` counts every HTTP request, including the `/stats` fetch itself. The service token itself never appears in `/stats`, `/config`, `/` or the logs.
+`queries.bypassed` counts `/query` requests that ran with access policies bypassed — by the [service credential](access-policies.md#:~:text=or%20%22restrictive%22%0A%7D\)%3B-,Service%20credential,-A%20trusted%20backend) or by an admin’s `X-Disc-Apply-Access-Policies: false` header. `queries.total` counts every HTTP request, including the `/stats` fetch itself. The service token itself never appears in `/stats`, `/config`, `/` or the logs.
 
 ### `GET /metrics`
 
@@ -680,7 +680,7 @@ const ws = new WebSocket("ws://localhost:5656");
 
 WebSocket support must be enabled on the server (`enableWebsockets: true`, the default).
 
-> **WebSocket queries carry no identity.** The upgrade happens before the auth gate and the socket never reads `Authorization`, so with access policies on, queries sent over a WebSocket compile as an anonymous caller, and neither a user JWT nor the [service credential](access-policies.md#:~:text=Service%20credential) is honored there. Use `POST /query` for anything that depends on who is asking.
+> **WebSocket queries carry no identity.** The upgrade happens before the auth gate and the socket never reads `Authorization`, so with access policies on, queries sent over a WebSocket compile as an anonymous caller, and neither a user JWT nor the [service credential](access-policies.md#:~:text=or%20%22restrictive%22%0A%7D\)%3B-,Service%20credential,-A%20trusted%20backend) is honored there. Use `POST /query` for anything that depends on who is asking.
 
 ### Client-to-Server Messages
 
@@ -804,7 +804,7 @@ const server = new DiscServer({
 
 The binary protocol uses SCRAM-SHA-256 authentication. Set a password via `binaryPassword` in the server options. If no password is set, authentication is not required.
 
-SCRAM authenticates the connection, not a Disc user: with access policies on, every binary-protocol query compiles as an **anonymous** caller, so it cannot reach a type whose policy depends on `global current_user`, and the [service credential](access-policies.md#:~:text=Service%20credential) is not honored on this listener. There is currently no way to carry a Disc identity over the binary protocol. Writes are rejected in read-only mode here too, nested ones included.
+SCRAM authenticates the connection, not a Disc user: with access policies on, every binary-protocol query compiles as an **anonymous** caller, so it cannot reach a type whose policy depends on `global current_user`, and the [service credential](access-policies.md#:~:text=or%20%22restrictive%22%0A%7D\)%3B-,Service%20credential,-A%20trusted%20backend) is not honored on this listener. There is currently no way to carry a Disc identity over the binary protocol. Writes are rejected in read-only mode here too, nested ones included.
 
 ### Protocol Details
 
@@ -992,9 +992,9 @@ When `server.start()` is called, the following steps execute in order:
 
 The server supports two protocol handler implementations:
 
-| Handler                       | Flag       | Description                                       |
-| :---------------------------- | :--------- | :------------------------------------------------ |
-| `EdgeQLProtocolHandler`       | `"full"`   | Full EdgeQL parser, compiler, and SQL generation (the default) |
+| Handler                       | Flag       | Description                                                                                           |
+| :---------------------------- | :--------- | :---------------------------------------------------------------------------------------------------- |
+| `EdgeQLProtocolHandler`       | `"full"`   | Full EdgeQL parser, compiler, and SQL generation (the default)                                        |
 | `SimpleEdgeQLProtocolHandler` | `"simple"` | Simulated compilation for development and testing; enforces no access policies. Explicit opt-in only. |
 
 `full` is the default both for `disc serve` / `createServerFromEnv()` and for `new DiscServer({})` with no `protocol` given. The simple handler is never selected implicitly — pass `protocol: "simple"` or set `DISC_PROTOCOL=simple`. The simple handler also does not decode base64 `bytes` variables and cannot run `select (update …) { … }`; treat it as a development aid, not a serving configuration.
@@ -1003,7 +1003,7 @@ The `full` handler provides:
 
 - Real EdgeQL parsing and compilation with error reporting.
 - Parse and compilation caches (configurable size via `cacheMaxSize`).
-- EXPLAIN plan caching (when `enableExplain` is true).
+- `EXPLAIN` plan caching (when `enableExplain` is true).
 - Slow query logging (configurable threshold via `slowQueryThresholdMs`).
 - Query timeout enforcement (via `requestTimeout`).
 - Access policy enforcement (when `enableAccessPolicies` is true).

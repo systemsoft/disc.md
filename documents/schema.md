@@ -134,12 +134,12 @@ Disc supports all standard scalar types. These map directly to PostgreSQL column
 
 ### Other Types
 
-| SDL Type   | Description               | PostgreSQL Type |
-| :--------- | :------------------------ | :-------------- |
+| SDL Type   | Description                                   | PostgreSQL Type |
+| :--------- | :-------------------------------------------- | :-------------- |
 | `bytes`    | Binary data (base64 in JSON, both directions) | `bytea`         |
-| `json`     | JSON data                 | `jsonb`         |
-| `sequence` | Auto-incrementing integer | `bigint`        |
-| `uuid`     | UUID identifier           | `uuid`          |
+| `json`     | JSON data                                     | `jsonb`         |
+| `sequence` | Auto-incrementing integer                     | `bigint`        |
+| `uuid`     | UUID identifier                               | `uuid`          |
 
 ### Custom Scalar Types
 
@@ -809,7 +809,7 @@ module default {
     required author: User;
     required status: str;
 
-    index on ((.author, .status));   # CREATE INDEX idx_post_author_id_status ON post (author_id, status)
+    index on ((.author, .status)); # CREATE INDEX idx_post_author_id_status ON post (author_id, status)
   };
 };
 ```

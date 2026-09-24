@@ -541,7 +541,13 @@ await client.user.update(newUser.id, { name: "Ada B." });
 const { deleted } = await client.user.delete(newUser.id); // { deleted: 0 | 1 }
 ```
 
-`delete()` resolves to the affected-row count, not the deleted object; to read the row back, use raw EdgeQL: `client.query("select (delete User filter .id = <uuid>$id) { id, email }", { id })`. A duplicate on an `exclusive` constraint in `insert()`/`update()` throws `UniqueViolationError`; every non-OK response is an error (see [Client SDK → Error Handling](client-sdk.md#:~:text=Error%20Hierarchy)). The typed client is a `DiscClient` subclass, so `client.withToken(serviceToken)` returns a typed client with its builders intact.
+`delete()` resolves to the affected-row count, not the deleted object; to read the row back, use raw EdgeQL:
+
+```typescript
+client.query("select (delete User filter .id = <uuid>$id) { id, email }", { id });
+```
+
+A duplicate on an `exclusive` constraint in `insert()`/`update()` throws `UniqueViolationError`; every non-OK response is an error (see [Client SDK → Error Handling](client-sdk.md#:~:text=Error%20Hierarchy)). The typed client is a `DiscClient` subclass, so `client.withToken(serviceToken)` returns a typed client with its builders intact.
 
 ## Multi-Module Schemas
 

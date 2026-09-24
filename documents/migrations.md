@@ -130,7 +130,7 @@ Parses the schema, diffs against the current state, generates DDL, and executes 
 disc migrate --create
 ```
 
-Generates the migration plan and shows the DDL that would be executed, but does not apply it to the database. Use this to review changes before committing. The preview includes any [index backfill](#:~:text=Index%20backfill) — `CREATE … INDEX IF NOT EXISTS` statements for declared indexes the database is missing — which `--dry-run` cannot see (it has no database connection).
+Generates the migration plan and shows the DDL that would be executed, but does not apply it to the database. Use this to review changes before committing. The preview includes any [index backfill](#:~:text=are%20never%20changed.-,Index%20backfill,-The%20differ%20compares) — `CREATE … INDEX IF NOT EXISTS` statements for declared indexes the database is missing — which `--dry-run` cannot see (it has no database connection).
 
 ### Preview (Dry Run)
 

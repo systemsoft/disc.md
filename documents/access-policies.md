@@ -29,7 +29,7 @@ Policies are enforced by the `full` protocol handler, which is the default for `
 
 **Where policies apply.** Policies reach every mutation wherever it sits in the query — a bare `update`, a `with u := (update …) select u`, the operand of `select (delete …) { id }`, the body of `for … union (insert …)` (including the [bulk insert](edgeql.md#:~:text=Bulk%20insert%20from%20JSON) form), the CTE a multi-link write compiles to, and the statement under `explain analyze`. An insert or delete a policy forbids is a compile error before any SQL runs; an update or delete a policy restricts gets the policy predicate inside its own `WHERE`. Policies are looked up by the type’s declared name, so `select default::Doc` is filtered exactly like `select Doc`. Read-only mode (`DISC_READ_ONLY`) likewise rejects nested writes. Two current gaps: select policies apply to the top-level type only (a nested shape or a `with d := (select Doc) select d` binding is not filtered), and a `select (update …) { … }` returns the rows the caller may *update* without applying the select policy.
 
-**Upsert and row-level update policies.** `insert … unless conflict on … else (update …)` on a type whose update policy has a row predicate is a compile error (`Upsert (unless conflict … else update) is not supported on 'T' because it has a row-level update policy. Use a separate update, or the service credential.`). An unconditional allow, a denial (also an error) and the service credential are unaffected. This is fail-closed on purpose: the `ON CONFLICT … DO UPDATE` branch cannot yet carry the predicate.
+**Upsert and row-level update policies.** `insert … unless conflict on … else (update …)` on a type whose update policy has a row predicate is a compile error (`Upsert (unless conflict … else update)` is not supported on `T` because it has a row-level update policy. Use a separate update, or the service credential.). An unconditional allow, a denial (also an error) and the service credential are unaffected. This is fail-closed on purpose: the `ON CONFLICT … DO UPDATE` branch cannot yet carry the predicate.
 
 **Callers without an identity.** Queries over a WebSocket and over the [binary protocol](server.md#:~:text=Binary%20Protocol) compile as an anonymous caller: no JWT is read there, so a policy that depends on `global current_user` denies them, and the service credential is not honored. Use `POST /query` for anything that depends on who is asking.
 
@@ -351,7 +351,7 @@ curl -X POST http://localhost:5656/query \
 
 **Truthy values.** The header value is normalized: `false`, `0`, and `no` (case-insensitive, trimmed) all opt out. Any other value (including absent, empty, `true`, `1`) keeps policies enforced.
 
-The implementation lives in `server/http-handlers.ts:handle_query` (header parsing + role gate) and `compiler/compiler.ts` (`applyAccessControl` for selects, `mutationAccessCondition` inside the insert/update/delete compilers; both short-circuit on `AccessContext.bypass`). ([gh/geldata#6358](https://github.com/geldata/gel/issues/6358))
+The implementation lives in [`server/http-handlers.ts:handle_query`](https://github.com/systemsoft/disc/blob/primary/server/http-handlers.ts#:~:text=protected%20async%20handle_query) (header parsing + role gate) and `compiler/compiler.ts` (`applyAccessControl` for selects, `mutationAccessCondition` inside the insert/update/delete compilers; both short-circuit on `AccessContext.bypass`). ([gh/geldata#6358](https://github.com/geldata/gel/issues/6358))
 
 ## Per-policy disable (admin-only) ([gh/geldata#6432](https://github.com/geldata/gel/issues/6432) slice 3)
 
@@ -494,7 +494,7 @@ FROM posts p
 WHERE (p.published = true) AND (p.author_id = 'd290f1ee-...')
 ```
 
-For UPDATE and DELETE queries, conditions restrict which rows can be modified. If a policy denies the operation entirely, the query raises an error rather than silently affecting zero rows. The predicate is added inside the mutation itself, so it travels with the statement into a `with` binding, a `select (update …) { … }` wrapper or a multi-link CTE:
+For `UPDATE` and `DELETE` queries, conditions restrict which rows can be modified. If a policy denies the operation entirely, the query raises an error rather than silently affecting zero rows. The predicate is added inside the mutation itself, so it travels with the statement into a `with` binding, a `select (update …) { … }` wrapper or a multi-link CTE:
 
 ```sql
 -- select (update Doc filter .id = <uuid>$id set { title := "x" }) { id }
@@ -503,7 +503,7 @@ WITH m AS (
 ) SELECT jsonb_build_object('id', m_1.id) FROM m AS m_1
 ```
 
-For INSERT queries, the evaluator checks the policy condition against the request context. If the insert is denied, an error is raised before the SQL executes — also for an insert nested in `for … union (insert …)`.
+For `INSERT` queries, the evaluator checks the policy condition against the request context. If the insert is denied, an error is raised before the SQL executes — also for an insert nested in `for … union (insert …)`.
 
 ---
 
