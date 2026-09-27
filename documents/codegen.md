@@ -345,7 +345,7 @@ export class UserQueryBuilder {
   }
 
   /** Insert new User */
-  async insert(data: Types.UserInsert): Promise<Types.User> {
+  async insert(data: Types.UserInsert): Promise<Types.UserMutationResult> {
     const assignments = Object
       .entries(data)
       .map(([key, value]) =>
@@ -358,7 +358,7 @@ export class UserQueryBuilder {
   }
 
   /** Update User by ID */
-  async update(id: string, data: Types.UserUpdate): Promise<Types.User> {
+  async update(id: string, data: Types.UserUpdate): Promise<Types.UserMutationResult | { updated: 0 }> {
     const assignments = Object
       .entries(data)
       .map(([key, value]) =>
@@ -545,6 +545,8 @@ const newUser = await client.user.insert({ email: "a@b.com", name: "Ada" });
 await client.user.update(newUser.id, { name: "Ada B." });
 const { deleted } = await client.user.delete(newUser.id); // { deleted: 0 | 1 }
 ```
+
+`insert()` and `update()` resolve to a `<Type>MutationResult`: the stored row as written — `id`, every stored property, and each single link as its target’s id (`string`, or `null` when an optional one is unset). Multi links, link properties and computed fields are not returned. `update()` of an id that doesn’t exist resolves to `{ updated: 0 }`, so check for it before reading the row. The Rust and Go clients return the same `<Type>MutationResult` struct, and `delete` a `DeleteResult`.
 
 `delete()` resolves to the affected-row count, not the deleted object; to read the row back, use raw EdgeQL:
 

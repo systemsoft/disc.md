@@ -1081,20 +1081,20 @@ select to_uuid('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11');
 
 ### `to_json`
 
-Converts any value to JSON.
+Parses JSON text into a `json` value, as in Gel. To turn any other value into JSON, cast it: `<json>42` is the number `42`, and `<json>'hello'` is the JSON string `"hello"` (a cast never parses its string).
 
 ```
-to_json(val: any) -> json
+to_json(str: str) -> json
 ```
 
 **Example:**
 
 ```edgeql
-select to_json('hello');
-select to_json(42);
+select to_json('{"name": "Ada", "tags": [1, 2]}');
+select to_json('[1, 2, 3]');
 ```
 
-**SQL equivalent:** `TO_JSONB('hello')`
+**SQL equivalent:** `CAST('…' AS jsonb)`
 
 ---
 
@@ -1109,10 +1109,10 @@ json_typeof(val: json) -> str
 **Example:**
 
 ```edgeql
-select json_typeof(to_json(42));
+select json_typeof(<json>42);
 # => 'number'
 
-select json_typeof(to_json('hello'));
+select json_typeof(<json>'hello');
 # => 'string'
 ```
 

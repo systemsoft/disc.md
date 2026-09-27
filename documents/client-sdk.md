@@ -881,7 +881,7 @@ const users = await qb
 //    ^? { email: string; name: string | null } | null
 ```
 
-`select` narrows the awaited row type to the picked shape, and results are converted to the markers’ types like a generated client’s: `int64`/`bigint` to `bigint`, `datetime` to `Date`, `bytes` to `Uint8Array`, on linked objects too. `filter` predicates receive a typed reference where each property accepts only the right comparison operand: `u.email.eq(...)` requires a `string`, `u.score.gt(...)` requires a `bigint` (`t.int64()` is a `bigint`, as in the generated client, so write `u.score.gt(10n)`; each filter value is cast as its field declares, `<int64>$p0`). Identifier safety is enforced at construction so schema typos fail before reaching the server.
+`select` narrows the awaited row type to the picked shape (a link picked with `true` is its target’s id: `string`, `string | null` when optional, `string[] | null` for a multi link; a link picked with a sub-shape is `[{ … }]`, and a row with no `select` has no links), and results are converted to the markers’ types like a generated client’s: `int64`/`bigint` to `bigint`, `datetime` to `Date`, `bytes` to `Uint8Array`, on linked objects too. `filter` predicates receive a typed reference where each property accepts only the right comparison operand: `u.email.eq(...)` requires a `string`, `u.score.gt(...)` requires a `bigint` (`t.int64()` is a `bigint`, as in the generated client, so write `u.score.gt(10n)`; each filter value is cast as its field declares, `<int64>$p0`). Identifier safety is enforced at construction so schema typos fail before reaching the server.
 
 ### Composability with `client.query`
 
@@ -1035,7 +1035,7 @@ Codegen-free query-builder DSL and schema declaration exports.
 | `TypedRef`           | type     | Typed object reference                            |
 | `TypedSelectChain`   | type     | Type-inferred select chain                        |
 
-Schema-declaration type exports: `FieldMarker`, `FieldType`, `IsLink`, `Link`, `LinkCardinality`, `LinkStub`, `LinkTarget`, `Optional`, `ResolveSelected`, `ResolveType`, `Scalar`, `SchemaSpec`, `SelectShape`.
+Schema-declaration type exports: `FieldMarker`, `FieldType`, `IsLink`, `Link`, `LinkCardinality`, `LinkStub` (deprecated: a link selected with `true` is its target’s id string), `LinkTarget`, `Optional`, `ResolveSelected`, `ResolveType`, `Scalar`, `SchemaSpec`, `SelectShape`.
 
 ### Codecs
 

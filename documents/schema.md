@@ -134,6 +134,8 @@ Disc supports all standard scalar types. These map directly to PostgreSQL column
 
 Durations come back as ISO 8601 text, as in Gel: a `duration` as `PT1H2M` (hours never fold into days, so 49 hours is `PT49H`), a `cal::relative_duration` as `P1Y2M3DT4H5M6.5S`, and a `cal::date_duration` as `P3D` (zero is `P0D`). Negative parts carry their own sign (`PT-1H`, `P-3D`). Casts accept both this form and PostgreSQL’s (`<duration>'01:02:00'`).
 
+Date arithmetic has Gel’s result types: `cal::local_date - cal::local_date` is a `cal::date_duration` (`P3D`), and `cal::local_date ± cal::date_duration` is a `cal::local_date`.
+
 ### Other Types
 
 | SDL Type   | Description                                   | PostgreSQL Type |
@@ -334,6 +336,8 @@ counts := ( videos := count(.<channel[is Video]), posts := count(.<channel[is Po
 ```
 
 Computed properties are read-only outputs: they’re excluded from the `{ * }` splat (select them explicitly) and from insert/update. Fields of a named-tuple computed are filterable — see [Filter API → Computed field filters](filter-api.md#:~:text=Computed%20field%20filters).
+
+A computed that yields objects — a path through a link (`auth := .author`), a backlink (`.<post[is Comment]`) or a `(select …)` of a type — is a computed link: select it with a sub-shape (`auth: { name }`) exactly like a stored link, and a path-based one also works in `filter` and `order by` (`filter .auth.name = "Ada"`). A `(select …)`-based computed link can be selected but not yet followed in a path.
 
 ### Property Qualifiers Summary
 
