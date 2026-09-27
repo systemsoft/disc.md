@@ -350,7 +350,7 @@ insert User {
 } unless conflict on .email;
 ```
 
-Without an `else` clause, a conflicting insert is simply ignored.
+Without an `else` clause, a conflicting insert is simply ignored, and the query returns `[]`. The same holds when an `else (update … filter …)` excludes the conflicting row: nothing is written and the result is `[]`, so an empty result means “skipped”.
 
 ---
 
@@ -440,6 +440,17 @@ select (insert GitRef { program := <Program><uuid>$p, name := <str>$n, target :=
 ```
 
 `with u := (update …) select u { id }` is the same statement spelled differently and compiles to identical SQL. With a shape, only the requested fields are projected (`content` and other large columns stay out of the response); without a shape, `select u` or `select (update …)` returns every column of the `RETURNING *` row, with column names. Access policies travel with the mutation inside the CTE. A mutation cannot yet nest inside another data-modifying `with` binding (PostgreSQL requires those at the top level).
+
+A path from a `with`-bound insert reads the inserted row: `n.last`, `n.id`, `n.program.name`. The `with` can also sit inside the parentheses, so taking a number from a counter and inserting with it is one statement:
+
+```edgeql
+select (
+  with n := (insert Numbering { program := <Program><uuid>$p, last := 1 }
+             unless conflict on .program
+             else (update Numbering set { last := .last + 1 }))
+  insert Bug { program := <Program><uuid>$p, number := n.last, title := <str>$t }
+) { number };
+```
 
 ### Update All Matching Objects
 

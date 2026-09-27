@@ -4,6 +4,38 @@ Behaviour changes that can affect an existing deployment or client, newest first
 
 ---
 
+## Expression and scalar-type constraints are enforced
+
+A type-level `constraint expression on (…)` and every constraint on a scalar type (`scalar type EVMAddress extending str { constraint regexp(…); }`) used to be accepted and create nothing. They are now PostgreSQL `CHECK`s, and property-level `expression on (__subject__ …)` compiles through the query compiler instead of being pasted into SQL as text.
+
+- **Before upgrading, check for rows that violate them.** The next `disc migrate` adds the missing checks and fails, applying nothing, if a stored row violates one.
+- An expression that can’t be checked on one row (a path through a link, a multi link, a subquery, `datetime_current()`, …) is now a schema error instead of being dropped. So are constraints on links other than `exclusive`, other constraint kinds at type level, and a type-level `exclusive` without `on`.
+- Writes that violate one now fail with `ConstraintViolationError`.
+
+See [Schema → `expression on`](schema.md#:~:text=It%20becomes%20a%20PostgreSQL) and [Schema → Custom Scalar Types](schema.md#:~:text=Custom%20Scalar%20Types).
+
+## A skipped insert returns `[]`
+
+A bare `insert … unless conflict` that wrote nothing — a conflict with no `else`, or an `else (update … filter …)` that excluded the row — answered `{ "success": true }`. It now answers `[]`, as in Gel, so a caller can tell “skipped” from “written”. Code that checked for `success` should check for an empty array.
+
+## Durations are ISO 8601
+
+`duration`, `cal::relative_duration` and `cal::date_duration` values come back as Gel’s ISO 8601 text (`PT1H2M`, `P1Y2M3DT4H`, `P3D`, `P0D`) instead of PostgreSQL’s (`01:02:00`, `1 year 2 mons`). `datetime - datetime` no longer folds hours into days (`PT49H`, not `2 days 01:00:00`). Anything that parses or displays duration strings sees the new form; casts still accept both. See [Schema → Date and Time Types](schema.md#:~:text=Durations%20come%20back%20as%20ISO).
+
+## `<json>` casts and `to_json()` follow Gel (breaking)
+
+`<json>'…'` makes a JSON string; it used to parse its text as JSON. `to_json()` takes JSON text and parses it; it used to wrap any value. Replace `<json>'{"a": 1}'` with `to_json('{"a": 1}')`, and `to_json(42)` with `<json>42`. `<json>` of every scalar now works and matches Gel (`bytes` as base64, datetimes in ISO form). `cal::local_date - cal::local_date` is a `cal::date_duration` (`P3D`, was the integer `3`) and `cal::local_date ± cal::date_duration` a `cal::local_date`. See [Functions → `to_json`](functions.md#:~:text=Parses%20JSON%20text).
+
+## Generated client types match what arrives (compile-time)
+
+Regenerating a client can surface type errors that were runtime bugs before:
+
+- A single link selected with a sub-shape is declared `[User]` (`[User] | null` when optional), as it arrives: read `post.author[0].name`. Rust: `Vec<T>` / `Option<Vec<T>>`; Go: `[]T`.
+- `insert()` and `update()` return `<Type>MutationResult`, with single links as id strings and no multi links or computed fields. `update()` is typed `<Type>MutationResult | { updated: 0 }`. The Rust and Go clients can now decode these results at all.
+- In the typed builder, a link picked with `true` is its id (`string`, `string | null`, `string[] | null`); `LinkStub` is deprecated.
+
+See [Codegen](codegen.md#:~:text=MutationResult).
+
 ## `bytes` is base64 on the wire (server + SDK together)
 
 `bytes` values are base64 (RFC 4648, no line breaks) in JSON, both directions. Before, a shape rendered `bytea` as PostgreSQL hex text (`"\\x1f8b…"`), a bare insert/update result rendered a `Uint8Array` as an index map (`{"0": 31, …}`), and a base64 string sent to a `<bytes>$p` variable was stored as its ASCII characters.

@@ -162,6 +162,8 @@ module default {
 };
 ```
 
+A scalar type’s constraints are enforced as PostgreSQL `CHECK`s on every column of that type: in subtypes’ tables, on each element of a `multi` or array property, on link properties, and through scalars that extend it (constraints are inherited). A violation is Gel’s `invalid <Scalar>` error, or the constraint’s `errmessage`. An `expression on (__subject__ …)` scalar constraint can’t be used on a `multi` or array property yet (a schema error). Casts such as `<PositiveInt>-1` are not checked.
+
 A scalar belongs to its module, so two modules may declare the same name (`default::Count extending int64`, `ledger::Count extending str`). A bare scalar name resolves in the module that uses it first, then in `default` — for the column type, the generated clients’ types and casts, and globals (a global of a user scalar or enum has its base type, so `global limit > 9` compares numbers). Columns an earlier version created with another module’s scalar type are converted on the next `disc migrate`, which fails naming the column and value if a stored value doesn’t convert.
 
 ### Enum Types
@@ -484,6 +486,12 @@ module default {
 };
 ```
 
+It becomes a PostgreSQL `CHECK` on the type’s table (and on every concrete subtype’s table when declared on an abstract type). `disc migrate` adds, changes and drops it, rollback undoes it, and a migration that adds one fails as a whole if stored rows already violate it. A write that violates it fails with Gel’s `ConstraintViolationError: invalid <Type>` (or the `errmessage`); an expression that comes out empty passes.
+
+The expression must be checkable on one row: stored properties, single links (`exists .bug` is `bug_id IS NOT NULL`), `and`/`or`/`not`, comparisons, `??`, `if … else`, casts and ordinary functions. Paths through a link (`.bug.title`), multi links and properties, backlinks, aggregates, subqueries, parameters, globals, computed members and non-immutable functions such as `datetime_current()` are a schema error naming the type and constraint. EdgeQL has no `xor`; write “exactly one of” as `(exists .bug) != (exists .patch)`.
+
+On a property, `constraint expression on (len(__subject__) > 2)` compiles the same way, with `__subject__` standing for the property.
+
 ### `regexp`
 
 Validates that a string matches a regular expression pattern:
@@ -504,7 +512,7 @@ module default {
 
 ### Custom Error Messages
 
-Constraints can include custom error messages using `errmessage`:
+Constraints can include custom error messages using `errmessage`. It replaces the violation message of `expression` constraints and of a scalar type’s constraints, with `{__subject__}` (and the constraint’s parameter, such as `{min}` or `{pattern}`) filled in; on the other property constraints it is accepted but PostgreSQL’s check-violation message is reported:
 
 ```sdl
 module default {

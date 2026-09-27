@@ -42,7 +42,7 @@ A failed `POST /query` answers `{ "errors": [{ "message", "extensions": { "code"
 | `TRANSACTION_ABORTED` | 409    | `POST /transaction/commit` on a transaction poisoned by an earlier failure; it has been rolled back and the id is gone.                    | —                           |
 | `WARNING`             | 200    | Not an error (dry-run mode).                                                                                                               | No                          |
 
-SQLSTATEs worth matching on: `23505` unique violation (a duplicate on an `exclusive` constraint or unique index; `constraint` names it), `23503` foreign-key violation, `23514` check violation (a `regexp`, `one_of`, `min_value`… constraint), `40001` serialization failure and `40P01` deadlock (retry the whole transaction). The SDK maps these to `UniqueViolationError`, `ForeignKeyViolationError`, `ConstraintViolationError`, `SerializationFailureError` and `DeadlockError`, all `instanceof DiscQueryError` with `.sqlState`.
+SQLSTATEs worth matching on: `23505` unique violation (a duplicate on an `exclusive` constraint or unique index; `constraint` names it), `23503` foreign-key violation, `23514` check violation (a `regexp`, `one_of`, `min_value`… constraint on a property or scalar type, or an `expression on` constraint), `40001` serialization failure and `40P01` deadlock (retry the whole transaction). The SDK maps these to `UniqueViolationError`, `ForeignKeyViolationError`, `ConstraintViolationError`, `SerializationFailureError` and `DeadlockError`, all `instanceof DiscQueryError` with `.sqlState`.
 
 `extensions.queryHash` on every response is the SHA-256 hex digest of the query text.
 
