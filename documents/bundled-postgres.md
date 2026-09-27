@@ -33,7 +33,7 @@ All Disc-managed PostgreSQL data lives under `~/.disc/`:
       disc.toml   # Instance configuration
   postgres/
     18.4/         # Cached PostgreSQL 18.4 binary
-      bin/        # postgres, initdb, pg_ctl, psql, etc.
+      bin/        # postgres, initdb, pg_ctl (no client tools)
       lib/        # Shared libraries
       share/      # Extensions, timezone data, configs
     17.0/         # Multiple versions can coexist
@@ -173,7 +173,7 @@ The upgrade process:
 
 The old PostgreSQL binary remains cached at `~/.disc/postgres/<old-version>/` and is not deleted, so rollback is always possible.
 
-> **Status:** the full `pg_dump`/`pg_restore` upgrade pipeline isn’t implemented yet — `upgradeInstance` currently throws an error indicating the feature is in development. The CLI surface and the flow described above are the intended behavior. The command is gated until the pipeline ships, so running it on a real instance is safe (it errors out before touching anything).
+The migration dumps with `pg_dumpall` and restores with `psql` into a new data directory, using the target version’s client tools (the bundled server builds ship none, so Disc downloads matching client tools on first use), then compares every database’s tables and row counts before swapping the new data directory in. Until the swap the old data directory is only renamed, never modified.
 
 ---
 
@@ -210,9 +210,12 @@ random_page_cost = 1.1
 
 # Logging
 log_min_duration_statement = 100
+log_directory = 'log'
+log_filename = 'postgresql-%a.log'   # one file per weekday
 log_rotation_age = 1d
-log_rotation_size = 100MB
-log_statement = "all"
+log_rotation_size = 0
+log_statement = 'ddl'
+log_truncate_on_rotation = on
 logging_collector = on
 
 # Disc-specific

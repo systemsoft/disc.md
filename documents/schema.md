@@ -158,6 +158,8 @@ module default {
 };
 ```
 
+A scalar belongs to its module, so two modules may declare the same name (`default::Count extending int64`, `ledger::Count extending str`). A bare scalar name resolves in the module that uses it first, then in `default` — for the column type, the generated clients’ types and casts, and globals (a global of a user scalar or enum has its base type, so `global limit > 9` compares numbers). Columns an earlier version created with another module’s scalar type are converted on the next `disc migrate`, which fails naming the column and value if a stored value doesn’t convert.
+
 ### Enum Types
 
 Enums are scalar types that extend `enum` with a fixed set of values:
@@ -719,10 +721,11 @@ module default {
 };
 ```
 
-| Policy          | Behavior                                             |
-| :-------------- | :--------------------------------------------------- |
-| `allow`         | Allow source deletion without affecting target       |
-| `delete target` | Delete the target objects when the source is deleted |
+| Policy                    | Behavior                                                                            |
+| :------------------------ | :---------------------------------------------------------------------------------- |
+| `allow`                   | Allow source deletion without affecting target                                      |
+| `delete target`           | Delete the target objects when the source is deleted                                |
+| `delete target if orphan` | Delete each target object that no other object links to after the source is deleted |
 
 ### Link Properties
 
@@ -980,7 +983,7 @@ module default {
 
 Both `User` and `Post` inherit `created_at` and `updated_at` from `Timestamped`.
 
-> **Production semantics — per-subtype tables.** Disc’s migration engine emits one PG table per concrete subtype; abstract types have no physical table. `SELECT <Abstract>` lowers to `UNION ALL` across the subtype tables (each branch projects the abstract’s columns), and `IS Type` filters reduce to `__type__ = '<Type>'` over the union. The `__type__` discriminator column is added automatically to every type that participates in a hierarchy. See [EdgeQL → Polymorphic Queries](edgeql.md#:~:text=count(.posts)\)%2C%0A%20%20name%0A%7D%3B-,Polymorphic%20Queries,-Polymorphic%20queries%20let) for how this affects compiled SQL and what polymorphic shape fields look like at runtime.
+> **Production semantics — per-subtype tables.** Disc’s migration engine emits one PG table per concrete subtype, which holds its objects. An abstract type’s own table only keeps trigger-maintained copies of its subtypes’ rows, so links to the abstract type have valid foreign keys. `insert` on an abstract type is an error; `update` and `delete` on one run per concrete subtype. `SELECT <Abstract>` lowers to `UNION ALL` across the subtype tables (each branch projects the abstract’s columns), and `IS Type` filters reduce to `__type__ = '<Type>'` over the union. The `__type__` discriminator column is added automatically to every type that participates in a hierarchy. See [EdgeQL → Polymorphic Queries](edgeql.md#:~:text=count(.posts)\)%2C%0A%20%20name%0A%7D%3B-,Polymorphic%20Queries,-Polymorphic%20queries%20let) for how this affects compiled SQL and what polymorphic shape fields look like at runtime.
 
 ### Concrete Inheritance
 

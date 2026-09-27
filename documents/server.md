@@ -168,7 +168,7 @@ All server configuration can be set via environment variables. The `createServer
 | Variable                   | Default | Description                                                                |
 | :------------------------- | :------ | :------------------------------------------------------------------------- |
 | `DISC_BINARY_PORT`         | (none)  | Port for the Gel-compatible binary protocol                                |
-| `DISC_BINARY_PASSWORD`     | (none)  | Password for SCRAM-SHA-256 auth on the binary listener                     |
+| `DISC_BINARY_PASSWORD`     | (none)  | Password for SCRAM-SHA-256 auth on the binary listener; a connection that authenticated with it may run persistent `configure` |
 | `DISC_BINARY_TLS_CERT`     | (none)  | TLS certificate for the binary listener (required by upstream Gel clients) |
 | `DISC_BINARY_TLS_CERT_ENV` | (none)  | Name of an env var holding the PEM cert ([gh/geldata#4547](https://github.com/geldata/gel/issues/4547))                  |
 | `DISC_BINARY_TLS_KEY`      | (none)  | TLS private key for the binary listener                                    |
@@ -804,7 +804,7 @@ const server = new DiscServer({
 
 The binary protocol uses SCRAM-SHA-256 authentication. Set a password via `binaryPassword` in the server options. If no password is set, authentication is not required.
 
-SCRAM authenticates the connection, not a Disc user: with access policies on, every binary-protocol query compiles as an **anonymous** caller, so it cannot reach a type whose policy depends on `global current_user`, and the [service credential](access-policies.md#:~:text=or%20%22restrictive%22%0A%7D\)%3B-,Service%20credential,-A%20trusted%20backend) is not honored on this listener. There is currently no way to carry a Disc identity over the binary protocol. Writes are rejected in read-only mode here too, nested ones included.
+SCRAM authenticates the connection, not a Disc user: with access policies on, every binary-protocol query compiles as an **anonymous** caller, so it cannot reach a type whose policy depends on `global current_user`, and the [service credential](access-policies.md#:~:text=or%20%22restrictive%22%0A%7D\)%3B-,Service%20credential,-A%20trusted%20backend) is not honored on this listener. There is currently no way to carry a Disc identity over the binary protocol. The password is, however, the administrator credential for persistent `configure` (`system`, `database`, `instance`): a connection that authenticated with it may run them, and with no password set no binary connection may. Writes are rejected in read-only mode here too, nested ones included.
 
 ### Protocol Details
 

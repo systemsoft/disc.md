@@ -195,13 +195,13 @@ For example, if you have migrations `m001`, `m002`, `m003` applied and you run `
 
 ### Rollback Safety
 
-Not all operations can be cleanly rolled back. The migration engine validates rollback safety and warns about operations that may require manual intervention:
+A rollback recreates what the migration dropped — types, properties, links, link properties, indexes, triggers, rewrites, enums and sequences — from the schema before the migration, exactly as a forward migrate would create them. Structure comes back; data does not:
 
-- **DropType** -- Rolling back a `DROP TABLE` cannot restore the original data. The table structure is gone.
-- **DropProperty** -- Rolling back a dropped column loses any data that was in that column.
-- **AlterProperty (ChangeType)** -- Type changes may not be reversible if the conversion is lossy.
+- **DropType / DropProperty / DropLink** -- the table, column or link is recreated empty. The rollback SQL marks each with a `-- RESTORED EMPTY:` comment, and the engine logs them when it runs.
+- **Sequences** -- a recreated sequence restarts at 1.
+- **AlterProperty (ChangeType)** -- type changes may not be reversible if the conversion is lossy.
 
-When the engine cannot generate automatic rollback SQL for an operation, it emits a comment in the rollback SQL:
+A few changes still need manual steps: reverting a single link or property that became `multi`, removing an added enum value (PostgreSQL has no `DROP VALUE`), and drops with no previous schema to recreate them from. The rollback SQL then contains a `-- MANUAL ROLLBACK REQUIRED:` comment, and the rollback is refused — nothing runs and the migration stays recorded:
 
 ```sql
 -- MANUAL ROLLBACK REQUIRED: Recreate table 'user'
@@ -336,7 +336,7 @@ Disc stores rollback SQL alongside every applied migration in the `disc_migratio
 
 - **Last migration was wrong:** `disc migrate --rollback --force` reverses the most recent migration using its stored rollback SQL.
 - **Need to revert further:** `disc migrate --rollback-to <id> --force` rolls back every migration applied after `<id>` in reverse chronological order. The target migration itself stays applied.
-- **Operation can’t be auto-rolled-back:** If the rollback SQL contains a `MANUAL ROLLBACK REQUIRED` comment (e.g., a dropped table whose data is gone), restore from a database backup. Disc does not snapshot data — that’s PostgreSQL’s job (see [Bundled PostgreSQL → Backups](bundled-postgres.md)).
+- **Operation can’t be auto-rolled-back:** If the rollback SQL contains a `MANUAL ROLLBACK REQUIRED` comment, the rollback is refused; restore from a database backup. A rolled-back drop comes back empty, so data it held also needs the backup. Disc does not snapshot data — that’s PostgreSQL’s job (see [Bundled PostgreSQL → Backups](bundled-postgres.md)).
 
 Rollback is destructive — `--force` is required so you can’t typo the command.
 

@@ -291,7 +291,7 @@ Operational rules:
 - **Env or CLI only, never `disc.toml`** — that file is normally committed.
 - **TLS or loopback.** The token is a long-lived bearer with full policy bypass. Send it only over TLS, or over a loopback/private interface (`DISC_HOST=127.0.0.1`, a Unix-socket-only network, a private VPC). Keep it out of browsers and out of anything a user can read.
 - **Rotate by restart.** SIGHUP does not change or drop it. To rotate, deploy the new value and restart.
-- **Scope.** Honored on `/query` and `/transaction/*` only — not REST (`/api/*`), WebSocket, `/schema`, `/stats`, extension routes or the binary listener. There it is an invalid JWT (anonymous, or 401 under `DISC_REQUIRE_AUTH=true`).
+- **Scope.** Honored on `/query`, `/transaction/*` and `/config` only (as an administrator, so persistent `configure` is allowed) — not REST (`/api/*`), WebSocket, `/schema`, `/stats`, extension routes or the binary listener. There it is an invalid JWT (anonymous, or 401 under `DISC_REQUIRE_AUTH=true`).
 - **Works with auth off or on.** The service needs no JWT and is accepted even when `DISC_ENABLE_AUTH=false` or no JWT secret is configured, and it passes `DISC_REQUIRE_AUTH=true`.
 - **Boot warning** when the token is set but `DISC_ENABLE_ACCESS_POLICIES` is off — the bypass then means nothing, because nothing is enforced for anyone.
 - **Observability.** `/stats` → `queries.bypassed` counts bypassed `/query` requests; a debug log line `Service credential query` carries a query hash and request id. The token never appears in `/config`, `/stats`, `/`, logs or error messages.
@@ -381,7 +381,7 @@ Retry-After: 60
 {"error": "Rate limit exceeded"}
 ```
 
-**Important:** If Disc is behind a reverse proxy, the rate limiter sees the proxy’s IP rather than the real client IP. Ensure the proxy forwards `X-Real-IP` or `X-Forwarded-For`, and configure your infrastructure so Disc can trust these headers.
+**Important:** If Disc is behind a reverse proxy, the rate limiter sees the proxy’s IP unless you set `DISC_TRUST_PROXY=true` (`--trust-proxy`). With it, the server-wide and auth rate limiters key on the left-most `X-Forwarded-For` entry (else `X-Real-IP`), so make sure the proxy sets that header and that clients can’t reach Disc except through the proxy.
 
 Consider applying rate limiting at the proxy layer instead for proxy deployments.
 
@@ -927,6 +927,7 @@ Before going live, verify each item:
 - [ ] `DISC_HOST=127.0.0.1` when behind a reverse proxy (do not bind to `0.0.0.0` unless required)
 - [ ] Database credentials are stored in a secrets manager, not in environment files committed to version control
 - [ ] PostgreSQL is not exposed on a public network interface
+- [ ] Only administrators can change persistent settings: `configure system | database | instance` and `POST /config` need the service credential or a user with the `admin`/`superuser` role; over the binary protocol they need a connection authenticated with `DISC_BINARY_PASSWORD`, so leave that unset unless binary clients must configure. Only [allowlisted keys](edgeql.md#:~:text=Available%20Configuration%20Keys) are accepted.
 
 ---
 
@@ -1051,7 +1052,7 @@ curl -s http://localhost:5656/stats | jq ".rate_limit"
 
 - Increase `DISC_RATE_LIMIT_RPM` for the traffic pattern
 - Increase `DISC_RATE_LIMIT_BURST` to absorb bursty but legitimate clients
-- If behind a proxy, verify that rate limiting at the proxy layer is preferred over per-IP limiting at Disc (since Disc will see the proxy IP, not the real client)
+- If behind a proxy, set `DISC_TRUST_PROXY=true` so Disc keys on the forwarded client IP instead of the proxy’s, or rate-limit at the proxy layer
 
 ### TLS Certificate Errors
 

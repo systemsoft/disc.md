@@ -84,6 +84,31 @@ await client.user.filter(not({ active: false }));
 
 The combinators accept either Filter objects or other combinators, so they nest freely. A bare Filter object never needs `and(...)` since its keys already `AND` together.
 
+### Multi properties and multi links
+
+A condition on a `multi` property, or reached through a `multi` link — through any mix of single and multi links, in either order (`{ best: { tags: { name: "x" } } }`, `{ posts: { author: { name: "x" } } }`) — holds when **some** element matches. The generated client compiles it to `any(<comparison>)` — one boolean, false when there is no element — so the combinators read the way they look:
+
+```ts
+await client.user.filter({ nicks: "a1" });        // some nick is "a1"
+await client.user.filter(not({ nicks: "a1" }));   // no nick is "a1" (a user with no nicks included)
+await client.user.filter({ nicks: { ne: "a1" } }); // some nick is not "a1"
+```
+
+`or(...)` holds when either side does, and sibling keys are independent conditions: `{ posts: { title: "a", published: true } }` is a user with a post titled `"a"` **and** a published post, not necessarily the same one. Each operator in an operator object is its own condition too (`{ nicks: { gte: "a", lt: "b" } }` asks for some nick ≥ `"a"` and some nick < `"b"`).
+
+### Optional single fields
+
+A condition on a single property or link compares the way the filter object reads: an empty value (an optional field with none) matches no condition on it — neither the condition nor its `not` — and `or` still holds when the other side does:
+
+```ts
+await client.user.filter(or({ visits: 1 }, { name: "ann" })); // ann matches even with no visits
+await client.user.filter(not({ visits: 1 }));                // users with visits other than 1; none without visits
+```
+
+In EdgeQL an `or` with an empty operand is empty, so the client emits a condition under `or` as `(<comparison>) ?? false`, and moves `not` inwards onto each condition (`not(and(a, b))` is `not a or not b`).
+
+The emitted `any(…)` and `?? false` mean the same in Gel whichever path scoping it uses. Raw EdgeQL follows Gel instead, which differs for `not` and `or` over multi paths — see [EdgeQL → Filtering on multi paths](edgeql.md#:~:text=Filtering%20on%20multi%20paths) — and makes `filter .visits = 1 or .name = "ann"` keep no user without `visits` ([Logical Operators](edgeql.md#:~:text=Logical%20Operators)).
+
 ---
 
 ## Shape narrowing
@@ -224,10 +249,11 @@ For `multi` links with a backlink (e.g., `User` has `multi posts: Post` linked b
 await client.user.filter({
   posts: { title: "hello world" }
 });
-// → ... filter EXISTS (SELECT 1 FROM posts p WHERE p.author_id = u.id AND p.title = $1)
+// EdgeQL → ... filter any(.posts.title = <str>$p0)
+// SQL    → ... WHERE EXISTS (SELECT 1 FROM posts p WHERE p.author_id = u.id AND p.title = $1)
 ```
 
-EdgeQL set-comparison semantics say `set OP scalar` is true if any element matches. The compiler rewrites the whole comparison to `EXISTS` — no need for ANY/SOME juggling.
+The condition holds when any linked post matches (see [Multi properties and multi links](#:~:text=Multi%20properties%20and%20multi%20links)). The client wraps it in `any(…)`, and the compiler turns that into one `EXISTS` — no need for ANY/SOME juggling.
 
 ### Junction table (many-to-many) — `EXISTS` + `JOIN`
 
@@ -269,9 +295,9 @@ await client.customer.filter({
 //       AND EXISTS (SELECT 1 FROM videos v WHERE v.channel_id = c.id AND v.is_draft = $1))
 ```
 
-This composes to any depth, and the hops can mix junction-table, backlink, and a trailing single-FK link freely. The one rule: the **first** hop must be a multi link — a chain that starts with a single link and only later reaches a multi link still needs raw EdgeQL (see [Not yet supported](#:~:text=query%20builder.-,Not%20yet%20supported,-A%20few%20patterns)).
+This composes to any depth, and the hops can mix junction-table, backlink and single-FK links freely, in any order: a chain that starts with a single link and later reaches a multi link (`{ author: { posts: { title: "x" } } }`) also means "some element matches".
 
-Sibling keys each become their own nested `EXISTS`, `AND`-ed together, so `{ channels: { videos: { isDraft: 0n, isPrivate: 0n } } }` matches a customer that has a channel with a non-draft video **and** a channel with a non-private video (standard EdgeQL set semantics — not necessarily the same video).
+Sibling keys are independent conditions, each its own `any(…)` and nested `EXISTS`, `AND`-ed together, so `{ channels: { videos: { isDraft: 0n, isPrivate: 0n } } }` matches a customer that has a channel with a non-draft video **and** a channel with a non-private video — not necessarily the same video. This is the path scoping of Gel’s `future simple_scoping`; Gel 7’s default (legacy path factoring) would require one video matching both. To require one linked object that meets every condition, use raw EdgeQL: `filter exists (select .channels.videos filter .isDraft = 0 and .isPrivate = 0)`.
 
 ---
 
@@ -402,9 +428,8 @@ When the object form doesn’t fit (deeply custom EdgeQL, schema features the fi
 
 ## Not yet supported
 
-A few patterns lower to compiler errors today and should fall back to raw EdgeQL until they land:
+A few patterns have no filter-object form yet and need raw EdgeQL:
 
-- **A multi link reached _after_ a single link in the same chain** (e.g. `.author.posts.title`, where `author` is single and `posts` is multi). Chains that **start** with a multi link work to any depth — including a trailing single-FK hop — but when the first hop is single and a later hop is multi, the compiler can’t yet place the EXISTS.
-- **Explicit `<-` backlink syntax** (e.g. `.<author[is Post]`). When the source type doesn’t pre-declare the back-link as a schema field, the explicit Gel syntax isn’t yet plumbed through the parser.
+- **Backlinks the source type doesn’t declare as a field.** A filter object has no key for them; raw EdgeQL takes Gel’s syntax (`filter .<author[is Post].title = <str>$t`).
 
 These are tracked alongside the closed gaps in the test suite at `sdk/filter-compiler-edgeql.test.ts` and `compiler/compiler.test.ts`.

@@ -173,6 +173,7 @@ EdgeQL types are mapped to TypeScript types as follows:
 
 | EdgeQL Type              | TypeScript Type | Nullable Type        | Array Type     |
 | :----------------------- | :-------------- | :------------------- | :------------- |
+| `bigint`                 | `bigint`        | `bigint \| null`     | `bigint[]`     |
 | `bool`                   | `boolean`       | `boolean \| null`    | `boolean[]`    |
 | `bytes`                  | `Uint8Array`    | `Uint8Array \| null` | `Uint8Array[]` |
 | `cal::date_duration`     | `string`        | `string \| null`     | `string[]`     |
@@ -181,7 +182,7 @@ EdgeQL types are mapped to TypeScript types as follows:
 | `cal::local_time`        | `string`        | `string \| null`     | `string[]`     |
 | `cal::relative_duration` | `string`        | `string \| null`     | `string[]`     |
 | `datetime`               | `Date`          | `Date \| null`       | `Date[]`       |
-| `decimal`                | `number`        | `number \| null`     | `number[]`     |
+| `decimal`                | `string`        | `string \| null`     | `string[]`     |
 | `duration`               | `string`        | `string \| null`     | `string[]`     |
 | `float32`                | `number`        | `number \| null`     | `number[]`     |
 | `float64`                | `number`        | `number \| null`     | `number[]`     |
@@ -192,7 +193,11 @@ EdgeQL types are mapped to TypeScript types as follows:
 | `str`                    | `string`        | `string \| null`     | `string[]`     |
 | `uuid`                   | `string`        | `string \| null`     | `string[]`     |
 
-`int64` maps to `bigint` (not `number`) so values beyond `Number.MAX_SAFE_INTEGER` survive without precision loss. You can pass `bigint` values straight back as query variables — `new DiscClient().query("… <int64>$n", { n: 0n })` — and the client encodes them as numeric strings on the wire automatically. On the way back, `int64` arrives as a numeric string; pass `{ revive: true }` (or use `parseInt64`) to get a `bigint`.
+`int64` and `bigint` map to `bigint` (not `number`, which is what Gel’s JS client reads an `int64` as) and `decimal` to `string`, so values beyond what a double holds survive without precision loss. A `bigint` works wherever a query builder takes a value (insert and update data, filter values), and you can pass `bigint` values straight back as raw query variables — `new DiscClient().query("… <int64>$n", { n: 0n })` — and the client encodes them as numeric strings on the wire automatically.
+
+On the way back, `int64`, `bigint` and `decimal` are JSON numbers carrying every digit, as in Gel. The client reads a number a double can’t hold exactly as a string of its digits, and every other number as a plain `number`. The generated builders then turn `int64` and `bigint` fields into `bigint` and `decimal` fields into a string of digits, in every row `select`, `selectById`, `filter`, `insert` and `update` return: in arrays and multi properties, on linked objects and in link properties (`"@weight"`). Raw `client.query()` results are not revived by type: there an `int64` is a `number`, or a numeric string past `Number.MAX_SAFE_INTEGER`, which `{ revive: true }` (or `parseInt64`) turns into a `bigint`. The Go client types `bigint` and `decimal` as `json.Number` and the Rust client as `ExactNumber` (a `serde_json::Number` under `arbitrary_precision`), both exact in each direction.
+
+`decimal` and `bigint` never hold NaN or ±Infinity: a cast or write that would produce one fails with an invalid-value error, as in Gel, and `bigint` also rejects fractions from strings (a `decimal` or float cast to `bigint` rounds). `float32`/`float64` do hold them; JSON has no number for them, so they travel as the strings `"NaN"`, `"Infinity"` and `"-Infinity"`. The Go and Rust clients read and write those into their float fields; in TypeScript they arrive as those strings.
 
 SQL type names (`text`, `integer`, `boolean`, `timestamptz`, etc.) are also recognized for backward compatibility and mapped through to their EdgeQL equivalents.
 

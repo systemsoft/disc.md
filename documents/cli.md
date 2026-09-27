@@ -285,7 +285,8 @@ disc shell [options]
 | `--database <name>`   | Database name                   | `disc`      |
 | `-s, --schema <file>` | Load a schema file on startup   |             |
 | `--non-interactive`   | Disable interactive mode        | `false`     |
-| `--execute <query>`   | Execute a single query and exit |             |
+| `-e, --execute <query>` | Execute a single query and exit |           |
+| `--backend-dsn <url>` | Connect to an external PostgreSQL |         |
 
 ### Examples
 
@@ -320,6 +321,8 @@ disc shell --schema ./dbschema/default.disc
 > The same table appears in [`docs/getting-started.md`](getting-started.md#:~:text=EdgeQL%20reference.-,Shell%20Commands,-The%20shell%20supports).
 > Keep them in sync — column widths included — so a `git diff`
 > instantly flags drift.
+
+**Connection and exit codes:** the shell resolves its connection like the other commands (`--backend-dsn`, then `DATABASE_URL`, then `disc.toml`). A query that fails under `--execute`, piped input or `\i` — or a failing backslash command in piped input — stops the run and exits `1`; at a terminal the error is printed and the session continues. Leaving the REPL (`\q`, `exit`, EOF) exits `0`.
 
 **Multiline queries:** Queries that do not end with a semicolon are treated as multiline input. The prompt changes to `...` until a semicolon terminates the query.
 
@@ -952,7 +955,7 @@ disc pg log --level ERROR
 disc pg log --level ERROR -f
 ```
 
-**Log location:** Logs are stored at `~/.disc/instances/<project>/logs/postgresql.log`. If no log file exists, the command reports an error suggesting that PostgreSQL may not be running.
+**Log location:** The command reads the newest `postgresql-*.log` in the logging collector’s directory, `~/.disc/instances/<project>/data/log/` (one file per weekday, reused), falling back to `~/.disc/instances/<project>/logs/postgresql.log`. If no log file exists, the command reports an error suggesting that PostgreSQL may not be running.
 
 **Follow mode:** Press Ctrl+C to stop following. The command polls for new content every 500 milliseconds.
 
@@ -960,7 +963,7 @@ disc pg log --level ERROR -f
 
 ## `disc pg upgrade`
 
-Upgrade the bundled PostgreSQL instance to a newer version. Uses a pg_dumpall/pg_restore strategy with automatic backup and rollback on failure.
+Upgrade the bundled PostgreSQL instance to a newer version. Uses a `pg_dumpall`/`psql` restore strategy with automatic backup and rollback on failure; the target version’s client tools are downloaded on first use.
 
 ### Usage
 
@@ -993,34 +996,26 @@ disc pg upgrade --target-version 17.0
 ```
 PostgreSQL Upgrade Plan:
   Project: my-project
-  Current version: 18.4
+  Current version: 16.4
   Target version: 17.0
-  Strategy: pg_dump/pg_restore
-  Backup: yes
+  Strategy: pg_dumpall + psql restore into a new data directory
+  Backup: ~/.disc/instances/my-project/backup-16.4-<timestamp>.tar.gz
 
 Dry run complete. No changes were made.
 ```
 
 ### Upgrade process
 
-1. **Download** the target version binary
-2. **Backup** the current instance (automatic)
-3. **Dump** the database using `pg_dumpall`
-4. **Stop** the current instance
-5. **Rename** the data directory (preserved as backup)
-6. **Initialize** a new data directory with the target version
-7. **Start** the new instance
-8. **Restore** the database from the dump
-9. **Verify** the new instance is running and healthy
-10. **Record** the upgrade in `version.json`
+1. **Download** the target version’s server binaries and client tools (before touching the instance)
+2. **Dump** every database with `pg_dumpall` (starting the server if needed) and record per-table row counts
+3. **Stop** the current instance and **back up** its data directory to a `.tar.gz` in the instance directory
+4. **Initialize** a staging data directory with the target version and start it
+5. **Restore** the dump with `psql` and **verify** the databases and row counts match
+6. **Swap** the staging directory into `data/`, **record** the new version in `version.json`, and restart the instance if it was running
 
 ### Automatic rollback
 
-If any step after the dump fails, the upgrade process automatically attempts to:
-
-- Stop the new instance (if running)
-- Restore the original data directory from backup
-- Restart the old instance
+If any step fails, the staging directory is removed, the original data directory and `version.json` are put back, and the old instance is restarted if it was running. The old data directory is only renamed until the swap succeeds; afterwards it is deleted, and the most recent backups are kept.
 
 ### Restrictions
 

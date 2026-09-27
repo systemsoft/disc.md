@@ -149,6 +149,16 @@ select Post {
 } filter .author.name = "Ada";
 ```
 
+#### Filtering on multi paths
+
+A comparison of a `multi` property, or of a path through a `multi` link (`.nicks = "a1"`, `.posts.title = "x"`), gives one boolean per element. As in Gel:
+
+- A filter is true when **any** of its booleans is: `filter .nicks = "a1"` keeps users with some nick `"a1"`. `any(…)` and `all(…)` take any such set of booleans and give one (`false` and `true` for no element).
+- `not` and `or` apply per element: `filter not (.nicks = "a1")` keeps users with some nick that is _not_ `"a1"` (a user with no nicks has no element to be true). For "no nick is `"a1"`", negate an `any()`: `filter not any(.nicks = "a1")`.
+- Two comparisons of the same multi path joined by `and` are independent: `filter .nicks = "a1" and .nicks = "a2"` keeps users with a nick of each. This is the path scoping of Gel’s `future simple_scoping`; Gel 7’s default (legacy path factoring) binds both to the same element and matches nothing. Disc keeps simple scoping deliberately. To test one linked object against several conditions, filter a subquery: `filter exists (select .posts filter .title = "x" and .published = true)`.
+
+The generated client’s [filter objects](filter-api.md#:~:text=Multi%20properties%20and%20multi%20links) compile every multi condition to `any(…)`, so they mean the same under either rule.
+
 ### `ORDER BY`
 
 Sort results:
@@ -187,7 +197,7 @@ select User {
 } order by .age asc empty last;
 ```
 
-The `empty first` and `empty last` modifiers control where NULL/empty values sort.
+The `empty first` and `empty last` modifiers control where NULL/empty values sort. Without one, empty values sort first for `asc` and last for `desc`, as in Gel.
 
 ### `LIMIT` and `OFFSET`
 
@@ -264,6 +274,8 @@ insert Post {
 
 Link values are set using a subquery that resolves to the target object.
 
+A single link holds one object, so, as in Gel, the value must be provably at most one: a select filtered on `.id` or on an `exclusive` property compared with one value, or one with `limit 1` (or an id cast, `<User><uuid>$id`). Any other select — `(select User filter .name = "Ada")`, or a `with` name bound to one — is a compile error (`possibly more than one element returned by an expression for a link 'author' declared as 'single'`). Wrap it in `assert_single(…)` to check at run time instead.
+
 ### Insert with Nested Insert
 
 You can insert linked objects in the same statement:
@@ -297,7 +309,7 @@ insert User {
 
 When a conflict on `.email` is detected, the `else` clause runs instead. This implements an upsert pattern: insert if the email does not exist, otherwise update the existing row.
 
-> With access policies on, an upsert on a type whose update policy has a row predicate is a compile error — see [Access Policies](access-policies.md#:~:text=Upsert%20and%20row%2Dlevel).
+> With access policies on, the `else` branch updates the conflicting object only when the caller may select and update it; otherwise the object is left as it is. Both branches are checked against the type’s write policies — see [Access Policies](access-policies.md#:~:text=Upsert%20and%20row%2Dlevel).
 
 ### Composite and link conflict targets
 
@@ -611,6 +623,8 @@ select User {
 } filter .id = <uuid>$user_id;
 ```
 
+A cast from a float to an integer type or `bigint` rounds half to even (`<int64>2.5` is `2`, `<int64>3.5` is `4`); a cast from a `decimal` rounds half away from zero (`<bigint>2.5n` is `3`) — both as in Gel.
+
 ### Calendar Type Casts
 
 ```edgeql
@@ -707,6 +721,8 @@ select User filter .active = true and (
   .role = "admin" or .role = "moderator"
 );
 ```
+
+As in Gel, `and`, `or`, `not` and `if … else` over an empty value (an optional property with none) are empty, not SQL’s `NULL OR TRUE`: `select User { b := .visits = 1 or .name = "ann" }` gives `b` no value for a user without `visits`, and `filter .visits = 1 or .name = "ann"` keeps no such user, since an empty filter condition keeps nothing. `?=`, `??` and `exists` give an empty operand a value: `filter .visits ?= 1 or .name = "ann"`.
 
 ### String Concatenation
 
@@ -1038,7 +1054,7 @@ with u := (update GitRef filter .name = <str>$n set { target := <str>$t })
 select u { id, target };
 ```
 
-A `with`-bound `select` is not filtered by the type’s select policy (see [Access Policies → Limitations](access-policies.md#:~:text=Limitations)).
+A `with`-bound `select` is filtered by the type’s select policy like any other read (see [Access Policies](access-policies.md#:~:text=Where%20policies%20apply)).
 
 ### Recursive CTEs (`WITH RECURSIVE`)
 
@@ -1537,7 +1553,7 @@ select Shape filter Shape is not Circle;
 
 ### How polymorphic `SELECT` compiles
 
-Disc’s migration engine creates one PG table per concrete subtype — there’s no physical table for the abstract parent. `SELECT <Abstract>` lowers to a `UNION ALL` across the subtype tables; each branch projects the abstract type’s properties (`id`, plus shared columns like `color`) so the outer SELECT can reference the abstract’s alias as if it were a regular table.
+Disc’s migration engine creates one PG table per concrete subtype, which holds its objects; the abstract parent’s own table only keeps trigger-maintained copies of them, so links to it have valid foreign keys. `insert` on an abstract type is an error, and `update`/`delete` on one run per concrete subtype. `SELECT <Abstract>` lowers to a `UNION ALL` across the subtype tables; each branch projects the abstract type’s properties (`id`, plus shared columns like `color`) so the outer SELECT can reference the abstract’s alias as if it were a regular table.
 
 When the SELECT shape uses `[is Subtype].property` to access a subtype-specific column, each UNION branch projects either the actual column (when its subtype owns it) or `NULL::<pg-type> AS <colName>` (when it doesn’t), so PG’s UNION column-resolution unifies. The outer compiler emits `CASE WHEN __type__ = '<Subtype>' THEN <alias>.<col> ELSE NULL END` to gate the value on the actual row type.
 
@@ -1657,21 +1673,43 @@ Reset a setting to its default value:
 configure session reset query_execution_timeout;
 ```
 
+### Who may configure
+
+`configure session` is open to every caller, for the session-level keys below. `configure database`, `configure instance` and `configure system` (`set` and `reset`) persist, so they need an administrator:
+
+- **HTTP (`POST /query`):** the [service credential](access-policies.md#:~:text=Service%20credential), or a verified user with the `admin` role or the `superuser` role `disc admin create-superuser` grants.
+- **Binary protocol:** only a connection that authenticated with `DISC_BINARY_PASSWORD`. With no password set, no binary connection may configure persistently.
+- **WebSocket:** never.
+
+Anyone else gets a `DisabledCapabilityError` ("cannot execute configuration commands"; HTTP `403`, `DISABLED_CAPABILITY`). The admin UI’s config editor (`POST /config`) takes the same administrators, even with auth off.
+
 ### Available Configuration Keys
 
-| Key                                   | Description                           |
-| :------------------------------------ | :------------------------------------ |
-| `effective_cache_size`                | Planner’s estimate of available cache |
-| `idle_in_transaction_session_timeout` | Timeout for idle transactions         |
-| `listen_addresses`                    | Network interfaces to listen on       |
-| `lock_timeout`                        | Maximum wait time for locks           |
-| `maintenance_work_mem`                | Memory for maintenance operations     |
-| `max_connections`                     | Maximum concurrent connections        |
-| `query_execution_timeout`             | Maximum query execution time          |
-| `shared_buffers`                      | Shared memory for caching             |
-| `work_mem`                            | Memory for sort and hash operations   |
+Only these keys are accepted; any other is a `ConfigurationError` (HTTP `400`, `CONFIGURATION_ERROR`), for administrators too.
 
-These map to PostgreSQL GUC parameters under the hood.
+**Session-level** — any caller with `configure session`, an administrator persistently:
+
+| Key                                   | PostgreSQL setting                    | Description                       |
+| :------------------------------------ | :------------------------------------ | :-------------------------------- |
+| `query_execution_timeout`             | `statement_timeout`                   | Maximum query execution time      |
+| `session_idle_transaction_timeout`    | `idle_in_transaction_session_timeout` | Timeout for idle transactions     |
+| `idle_in_transaction_session_timeout` | `idle_in_transaction_session_timeout` | Timeout for idle transactions     |
+| `lock_timeout`                        | `lock_timeout`                        | Maximum wait time for locks       |
+
+**System-level** — administrators only, with `configure database | instance | system`; `configure session` of one is a `ConfigurationError` telling you to use `configure system`:
+
+| Key                         | Description                                      |
+| :-------------------------- | :----------------------------------------------- |
+| `shared_buffers`            | Shared memory for caching                        |
+| `query_work_mem`            | Memory for sorts and hashes (`work_mem`)         |
+| `work_mem`                  | Memory for sort and hash operations              |
+| `maintenance_work_mem`      | Memory for maintenance operations                |
+| `effective_cache_size`      | Planner’s estimate of available cache            |
+| `effective_io_concurrency`  | Concurrent disk I/O operations                   |
+| `default_statistics_target` | Default planner statistics target                |
+| `max_connections`           | Maximum concurrent connections                   |
+
+These map to PostgreSQL settings under the hood (`configure system` is `ALTER SYSTEM SET`). Nothing that holds a secret, names a file or command, or controls logging, networking or replication is configurable.
 
 ---
 

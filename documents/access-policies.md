@@ -27,9 +27,9 @@ Access policies work best with [authentication](auth.md) enabled, since most pol
 
 Policies are enforced by the `full` protocol handler, which is the default for `disc serve` and for `new DiscServer({})`. The `simple` handler (an explicit opt-in via `DISC_PROTOCOL=simple` / `protocol: "simple"`) enforces nothing.
 
-**Where policies apply.** Policies reach every mutation wherever it sits in the query — a bare `update`, a `with u := (update …) select u`, the operand of `select (delete …) { id }`, the body of `for … union (insert …)` (including the [bulk insert](edgeql.md#:~:text=Bulk%20insert%20from%20JSON) form), the CTE a multi-link write compiles to, and the statement under `explain analyze`. An insert or delete a policy forbids is a compile error before any SQL runs; an update or delete a policy restricts gets the policy predicate inside its own `WHERE`. Policies are looked up by the type’s declared name, so `select default::Doc` is filtered exactly like `select Doc`. Read-only mode (`DISC_READ_ONLY`) likewise rejects nested writes. Two current gaps: select policies apply to the top-level type only (a nested shape or a `with d := (select Doc) select d` binding is not filtered), and a `select (update …) { … }` returns the rows the caller may *update* without applying the select policy.
+**Where policies apply.** Policies reach every mutation wherever it sits in the query — a bare `update`, a `with u := (update …) select u`, the operand of `select (delete …) { id }`, the body of `for … union (insert …)` (including the [bulk insert](edgeql.md#:~:text=Bulk%20insert%20from%20JSON) form), the CTE a multi-link write compiles to, and the statement under `explain analyze`. An update or delete reaches only the objects the caller may both select and update or delete: the policy predicate goes inside its own `WHERE`, and an unconditional `deny` leaves nothing to modify, without an error. Inserted and updated objects are checked after the write, in the same statement: an object that fails the type’s insert or update write policies raises `access policy violation on insert of <Type>` (or `update`) and nothing is written. Select policies narrow every read of a protected type — the top-level select, `with` bindings, `for` iterators, path roots and hops, link and backlink sub-shapes, aggregates and `exists`, and the shape over a mutation’s result. Policies are looked up by the type’s declared name, so `select default::Doc` is filtered exactly like `select Doc`, and a subtype is filtered by its ancestors’ policies as well as its own. Read-only mode (`DISC_READ_ONLY`) likewise rejects nested writes.
 
-**Upsert and row-level update policies.** `insert … unless conflict on … else (update …)` on a type whose update policy has a row predicate is a compile error (`Upsert (unless conflict … else update)` is not supported on `T` because it has a row-level update policy. Use a separate update, or the service credential.). An unconditional allow, a denial (also an error) and the service credential are unaffected. This is fail-closed on purpose: the `ON CONFLICT … DO UPDATE` branch cannot yet carry the predicate.
+**Upsert and row-level update policies.** In `insert … unless conflict on … else (update …)`, the `else` branch updates the conflicting object only when the caller may select and update it; otherwise the object is left as it is. Both branches are checked against the type’s write policies.
 
 **Callers without an identity.** Queries over a WebSocket and over the [binary protocol](server.md#:~:text=Binary%20Protocol) compile as an anonymous caller: no JWT is read there, so a policy that depends on `global current_user` denies them, and the service credential is not honored. Use `POST /query` for anything that depends on who is asking.
 
@@ -157,6 +157,27 @@ access policy no_delete {
 };
 ```
 
+### `when` Conditions
+
+`when (<condition>)` limits the objects a policy applies to, as in Gel. The policy applies where both its `when` and its `using` hold. Gel’s one-line form and Disc’s block form are both accepted:
+
+```
+access policy admins
+  when (global current_role ?= "admin")
+  allow all;
+
+access policy no_locked
+  when (.locked ?= true)
+  deny update, delete;
+
+access policy editors {
+  when (global current_role ?= "editor");
+  allow select;
+};
+```
+
+The one-line form can end in a body for `errmessage` and annotations: `access policy p allow select using (…) { errmessage := "…"; };`.
+
 ---
 
 ## Globals in Policies
@@ -259,21 +280,15 @@ Production code calls `Deno.permissions.querySync(...)` via the `defaultPermissi
 
 ## Evaluation Order
 
-Disc evaluates policies in two modes:
+For each operation (`select`, `insert`, `update`, `delete`), a type’s policies decide object by object, as in Gel:
 
-### Permissive Mode (Default)
+1. **No policies on the type** — the `defaultAllow` setting decides. The server runs with `defaultAllow: true`, so a type without policies is unrestricted.
+2. **Allow policies form a union.** An object is accessible when at least one `allow` policy for the operation applies to it: its `when` and `using` both hold (a policy with neither applies to every object). When the type has policies but none allows the operation, nothing is accessible — `defaultAllow` is not consulted.
+3. **Deny policies subtract.** An object a `deny` policy for the operation applies to is removed, even if an allow covers it. For a select, update or delete the deny becomes a filter, so an unconditional deny leaves nothing to read or modify, without an error; for an insert or update, the write check fails each object it applies to.
 
-1. All `allow` policies are evaluated. If **any** allow policy matches, the row is accessible.
-2. All `deny` policies are evaluated. If **any** deny policy matches, it overrides the allow.
-3. If no policies match, the `defaultAllow` setting determines access.
+Conditions are decided for each object by PostgreSQL, never in memory: an SDL `using` or `when` compiles through the query compiler, so it can follow links and backlinks, call functions and read globals. The objects a condition reads are not narrowed by their own types’ policies.
 
-In permissive mode, allow policies are OR’d together: a row is accessible if it matches at least one allow policy.
-
-### Restrictive Mode
-
-1. Requires an **explicit** allow policy to grant access.
-2. Any deny policy immediately blocks access.
-3. If no allow policy matches, access is denied regardless of `defaultAllow`.
+`AccessEvaluator` also takes a `mode`. `permissive` (what the server uses) and `restrictive` reach the same verdicts; `restrictive` stops at the first deny that applies to every object and reports that policy’s errmessage.
 
 Configure the mode programmatically:
 
@@ -312,7 +327,7 @@ What the server does with it:
 
 - **Identity.** A request that presents the token resolves to `userId` `"service"`, roles `["service"]`, with **every** access policy bypassed — select, insert, update and delete, including nested, `with`-form, `select (mutation)` and bulk-insert mutations. No `X-Disc-Apply-Access-Policies` header is needed. Inside a service query, `global current_user` is the string `"service"`, so do not compare it with a uuid column.
 - **Only the header.** The token is matched on `Authorization: Bearer <token>` only — never a cookie, URL parameter or body field. A wrong bearer is not the service: it falls through to ordinary JWT verification, so a near-miss is simply anonymous (or `401` under `DISC_REQUIRE_AUTH=true`). Comparison is a constant-time compare of SHA-256 digests.
-- **Scope.** `POST /query` and `POST /transaction/{begin,commit,rollback}` only. REST (`/api/*`), WebSocket, `/schema`, `/stats`, extension routes and the binary listener do **not** honor it; there it is an invalid JWT.
+- **Scope.** `POST /query`, `POST /transaction/{begin,commit,rollback}` and `/config` only; it is an administrator there, so it may run persistent `configure` (see [EdgeQL → Who may configure](edgeql.md#:~:text=Who%20may%20configure)). REST (`/api/*`), WebSocket, `/schema`, `/stats`, extension routes and the binary listener do **not** honor it; there it is an invalid JWT.
 - **Auth on or off.** It works with auth disabled (`DISC_ENABLE_AUTH=false`, or no JWT secret) and with `DISC_REQUIRE_AUTH=true` — the service needs no JWT and is accepted even when no auth provider is configured.
 - **Transactions.** A transaction the service opens is owned by `"service"`: a user cannot query into, commit or roll it back, and the service cannot drive a user’s.
 - **Configuration.** `DISC_SERVICE_TOKEN` or `--service-token` only; it is deliberately not a `disc.toml` key because that file is committed. Minimum 32 bytes (UTF-8), else `disc serve` exits with `DISC_SERVICE_TOKEN (--service-token) must be at least 32 bytes; got N`. The server warns at boot when a token is set but `DISC_ENABLE_ACCESS_POLICIES` is off, because the bypass then means nothing. SIGHUP does not rotate or drop it; restart to change it.
@@ -351,7 +366,7 @@ curl -X POST http://localhost:5656/query \
 
 **Truthy values.** The header value is normalized: `false`, `0`, and `no` (case-insensitive, trimmed) all opt out. Any other value (including absent, empty, `true`, `1`) keeps policies enforced.
 
-The implementation lives in [`server/http-handlers.ts:handle_query`](https://github.com/systemsoft/disc/blob/primary/server/http-handlers.ts#:~:text=protected%20async%20handle_query) (header parsing + role gate) and `compiler/compiler.ts` (`applyAccessControl` for selects, `mutationAccessCondition` inside the insert/update/delete compilers; both short-circuit on `AccessContext.bypass`). ([gh/geldata#6358](https://github.com/geldata/gel/issues/6358))
+The implementation lives in [`server/http-handlers.ts:handle_query`](https://github.com/systemsoft/disc/blob/primary/server/http-handlers.ts#:~:text=protected%20async%20handle_query) (header parsing + role gate) and the compiler (`restrictObjectReads` in `compiler/compiler-base.ts` for reads, `mutationAccessCondition` in `compiler/compiler.ts` for insert/update/delete; both short-circuit on `AccessContext.bypass`). ([gh/geldata#6358](https://github.com/geldata/gel/issues/6358))
 
 ## Per-policy disable (admin-only) ([gh/geldata#6432](https://github.com/geldata/gel/issues/6432) slice 3)
 
@@ -453,8 +468,8 @@ AccessEvaluator.evaluate(objectType, operation, context)
     ↓
 AccessDecision { allowed, sqlConditions }
     ↓
-AccessSQLInjector.injectSelect/Update/Delete()
-    ⏐  adds WHERE clauses to compiled SQL
+EdgeQLCompiler (restrictObjectReads, mutationAccessCondition, write checks)
+    ⏐  narrows every read, scopes each update/delete, checks each written object
     ↓
 PostgreSQL executes filtered query
 ```
@@ -494,7 +509,7 @@ FROM posts p
 WHERE (p.published = true) AND (p.author_id = 'd290f1ee-...')
 ```
 
-For `UPDATE` and `DELETE` queries, conditions restrict which rows can be modified. If a policy denies the operation entirely, the query raises an error rather than silently affecting zero rows. The predicate is added inside the mutation itself, so it travels with the statement into a `with` binding, a `select (update …) { … }` wrapper or a multi-link CTE:
+For `UPDATE` and `DELETE` queries, conditions restrict which rows can be modified. If a policy denies the operation entirely, the statement modifies nothing, without an error (as in Gel). The predicate is added inside the mutation itself, so it travels with the statement into a `with` binding, a `select (update …) { … }` wrapper or a multi-link CTE:
 
 ```sql
 -- select (update Doc filter .id = <uuid>$id set { title := "x" }) { id }
@@ -503,7 +518,7 @@ WITH m AS (
 ) SELECT jsonb_build_object('id', m_1.id) FROM m AS m_1
 ```
 
-For `INSERT` queries, the evaluator checks the policy condition against the request context. If the insert is denied, an error is raised before the SQL executes — also for an insert nested in `for … union (insert …)`.
+For `INSERT` queries, and for the objects an `UPDATE` writes, each written object is checked against the write policies (and any `with check`) after the write, in the same statement. An object that fails raises `access policy violation on insert of <Type>` (or `update`) — `ACCESS_POLICY_ERROR`, HTTP `403` — and nothing is written; this covers inserts nested in `for … union (insert …)` and in link assignments too.
 
 ---
 
@@ -695,11 +710,7 @@ The following features are not yet implemented:
 
 - **Column-level policies** -- policies currently apply at the row level only. Column-level restrictions for UPDATE operations are planned.
 - **PostgreSQL RLS passthrough** -- policies are currently enforced at the application level via SQL injection. Native PostgreSQL RLS policy generation is implemented (`AccessSQLInjector.generateRLSPolicies()`) but not yet wired into the migration engine.
-- **Policy composition across inheritance** -- policies on abstract types are not yet automatically inherited by concrete subtypes.
 - **Audit logging** -- the `enableAudit` config flag is accepted but audit logging is not yet implemented.
-- **WITH CHECK on INSERT/UPDATE** -- `with check (...)` clauses are parsed by the SDL grammar (`schema/parser.ts`), forwarded to the runtime policy (`access/policy-adapter.ts`), and emitted as `WITH CHECK` on the generated PostgreSQL RLS policy (`access/sql-injector.ts`). Native RLS enforcement requires the migration-engine RLS wiring listed above.
-- **Select policies on nested shapes and `with`-bound selects** -- the select policy is applied to the top-level type only; `with d := (select Doc) select d` and nested link shapes are not filtered, and `select (update …) { … }` returns what the caller may update without the select policy.
-- **Upsert with a row-level update policy** -- `unless conflict … else (update …)` is a compile error on such types (see above); use a separate `update` or the service credential.
 - **Identity over WebSocket and the binary protocol** -- both compile as anonymous; there is no way to carry a Disc user or the service credential over them yet.
 
 ---

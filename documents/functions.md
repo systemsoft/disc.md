@@ -724,6 +724,8 @@ select math_mean(User.age);
 
 Aggregate functions operate on sets of values and return a single result. All aggregate functions listed here can also be used as window functions with an `OVER` clause.
 
+In a shape, filter or `order by`, an aggregate over a value of the current object (`count(.visits)`, `sum(.n)`, `max(.best.title)`) aggregates that object’s set — for a single property, zero or one element — not the rows of the enclosing `select`: `select User { c := count(.visits) }` is `0` or `1` per user.
+
 ### `count`
 
 Returns the number of elements in a set.
@@ -1309,7 +1311,7 @@ select enumerate(User.name);
 
 ### `any`
 
-Returns true if any element in a set of boolean values is true.
+Returns true if any element in a set of boolean values is true, and false for an empty set. The set can be any boolean expression — a comparison of a multi property or link path (`any(.tags.name = 'x')`), or one value of the current object — and is aggregated per object in a shape or filter.
 
 ```
 any(vals: bool) -> bool
@@ -1328,7 +1330,7 @@ select any(User.is_admin);
 
 ### `all`
 
-Returns true if all elements in a set of boolean values are true.
+Returns true if all elements in a set of boolean values are true, and true for an empty set. It takes any boolean expression, as `any` does.
 
 ```
 all(vals: bool) -> bool
@@ -1369,7 +1371,7 @@ select assert_exists(
 
 ### `assert_single`
 
-Asserts that the expression returns at most one result. Raises an error if the set contains more than one element.
+Asserts that the expression returns at most one result. Raises a `CardinalityViolationError` (SQLSTATE `21000`) when the query runs if the set contains more than one element. Use it to assign a select that the compiler cannot prove returns at most one object to a single link (see [EdgeQL → Insert with Links](edgeql.md#:~:text=Insert%20with%20Links)).
 
 ```
 assert_single(expr: any) -> any
@@ -1512,7 +1514,7 @@ select datetime_of_statement();
 
 ### `datetime_get`
 
-Extracts a component (field) from a datetime value. Valid fields include `'year'`, `'month'`, `'day'`, `'hour'`, `'minute'`, `'second'`, `'epoch'`, and others supported by PostgreSQL’s `EXTRACT`.
+Extracts a component of a datetime, as a `float64`. The unit is one of Gel’s: `'epochseconds'`, `'century'`, `'day'`, `'decade'`, `'dow'`, `'doy'`, `'hour'`, `'isodow'`, `'isoyear'`, `'microseconds'`, `'millennium'`, `'milliseconds'`, `'minutes'`, `'month'`, `'quarter'`, `'seconds'`, `'week'`, `'year'`. Any other unit (PostgreSQL’s `'epoch'` included) is an `InvalidValueError`, at compile time for a literal and when the query runs otherwise.
 
 ```
 datetime_get(val: datetime, field: str) -> float64
@@ -1524,11 +1526,41 @@ datetime_get(val: datetime, field: str) -> float64
 select datetime_get(datetime_current(), 'year');
 # => 2026
 
-select datetime_get(datetime_current(), 'month');
-# => 3
+select datetime_get(.created_at, 'epochseconds');
+# => 1789862400
 ```
 
-**SQL equivalent:** `EXTRACT(year FROM NOW())`
+**SQL equivalent:** `date_part('year', NOW())`
+
+---
+
+### `duration_get`
+
+Extracts a component of a duration, as a `float64`. A `duration` takes `'hour'`, `'minutes'`, `'seconds'`, `'milliseconds'`, `'microseconds'` and `'totalseconds'`; a `cal::relative_duration` also takes `'millennium'`, `'century'`, `'decade'`, `'year'`, `'quarter'`, `'month'` and `'day'`; a `cal::date_duration` takes those date units and `'totalseconds'`.
+
+```
+duration_get(val: duration, field: str) -> float64
+```
+
+**Example:**
+
+```edgeql
+select Post { age_days := <int64>(duration_get(datetime_current() - .created_at, 'totalseconds') // 86400) };
+```
+
+---
+
+### `cal::time_get` and `cal::date_get`
+
+Extract a component of a `cal::local_time` (`'hour'`, `'minutes'`, `'seconds'`, `'milliseconds'`, `'microseconds'`, `'midnightseconds'`) or a `cal::local_date` (`'century'`, `'day'`, `'decade'`, `'dow'`, `'doy'`, `'isodow'`, `'isoyear'`, `'millennium'`, `'month'`, `'quarter'`, `'week'`, `'year'`), as a `float64`.
+
+```edgeql
+select cal::time_get(<cal::local_time>'10:30:00', 'minutes');
+# => 30
+
+select cal::date_get(<cal::local_date>'2026-09-27', 'doy');
+# => 270
+```
 
 ---
 
@@ -2247,8 +2279,8 @@ order by fts::rank('database migration') desc;
 | Set              | `distinct`, `exists`, `enumerate`, `any`, `all`                                                                                                                                                                      |
 | Assertion        | `assert_exists`, `assert_single`                                                                                                                                                                                     |
 | UUID             | `disc_uuidv7`, `uuid_generate_v4`, `uuid_generate_v1mc`                                                                                                                                                              |
-| Datetime         | `datetime_current`, `datetime_of_transaction`, `datetime_of_statement`, `datetime_get`, `datetime_truncate`, `to_datetime`, `to_duration`                                                                            |
-| Calendar         | `cal_to_local_date`, `cal_to_local_time`, `cal_to_local_datetime`                                                                                                                                                    |
+| Datetime         | `datetime_current`, `datetime_of_transaction`, `datetime_of_statement`, `datetime_get`, `duration_get`, `datetime_truncate`, `to_datetime`, `to_duration`                                                                            |
+| Calendar         | `cal_to_local_date`, `cal_to_local_time`, `cal_to_local_datetime`, `cal::time_get`, `cal::date_get`                                                                                                                                                    |
 | Window           | `row_number`, `rank`, `dense_rank`, `ntile`, `lag`, `lead`, `first_value`, `last_value`                                                                                                                              |
 | Bytes            | `bytes_get_bit`, `bytes_to_str`, `std::base64_encode`, `std::base64_decode`                                                                                                                                                                                   |
 | Range            | `range`, `range_get_lower`, `range_get_upper`, `range_is_empty`, `range_unpack`, `range_is_inclusive_lower`, `range_is_inclusive_upper`, `multirange`, `overlaps`, `contains` (overload)                             |

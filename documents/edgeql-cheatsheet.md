@@ -309,7 +309,7 @@ select <uuid>"d290f1ee-6c54-4b01-90e6-d701748f0851";
 
 # Cast in expressions
 select User filter .id = <uuid>$id;
-select Post { age_days := <int64>(datetime_current() - .created_at) / 86400 };
+select Post { age_days := <int64>(duration_get(datetime_current() - .created_at, 'totalseconds') // 86400) };
 
 # A cast covers the whole postfix expression: subscript, call, path
 select <str>item['name'];         # <str>(item['name'])

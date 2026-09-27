@@ -101,7 +101,7 @@ Executes an EdgeQL query and returns the result data directly. Throws `DiscQuery
 
 The optional `options` argument accepts `{ revive, validate }`: `revive` auto-converts wire-encoded scalars (e.g. ISO date strings into `Date`), and `validate` runs a validator against the result, throwing `DiscValidationError` if it rejects.
 
-`bigint` variables (the type codegen assigns to `int64` fields) are supported directly — the client encodes them as numeric strings on the wire, so `{ count: 0n }` works where plain `JSON.stringify` would throw "Do not know how to serialize a BigInt". `Uint8Array` variables are sent as base64 automatically, at any depth — see [Bytes](#:~:text=bytes%20is%20base64%20on%20the%20wire) below.
+`bigint` variables (the type codegen assigns to `int64` and `bigint` fields) are supported directly — the client encodes them as numeric strings on the wire, so `{ count: 0n }` works where plain `JSON.stringify` would throw "Do not know how to serialize a BigInt". Inbound, `int64`, `bigint` and `decimal` values are exact JSON numbers; `client.query()` reads one a double can’t hold exactly as a string of its digits, and the generated builders return `int64`/`bigint` fields as `bigint` (see [Codegen → Property Type Mappings](codegen.md#:~:text=Property%20Type%20Mappings)). `Uint8Array` variables are sent as base64 automatically, at any depth — see [Bytes](#:~:text=bytes%20is%20base64%20on%20the%20wire) below.
 
 Variables are bound by name, so their key order is irrelevant; a missing or extra variable is a 400 `VALIDATION_ERROR` naming it.
 
@@ -1049,7 +1049,7 @@ Wire-format encode/decode helpers.
 | `parseDateTime`  | function | Parse a wire-format datetime value                                                                           |
 | `parseInt64`     | function | Parse a wire-format 64-bit integer                                                                           |
 | `reviveResponse` | function | Revive typed values in a raw response payload (`bytes` only at the paths named in `ReviveOptions.bytes`)     |
-| `reviveTyped`    | function | Revive `bytes` fields of a result using a generated builder’s `TypeInfo` (what generated clients call)       |
+| `reviveTyped`    | function | Revive `bytes`, `int64`, `bigint` and `decimal` fields (link properties included) of a result using a generated builder’s `TypeInfo` (what generated clients call)       |
 
 ---
 

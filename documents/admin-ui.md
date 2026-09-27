@@ -214,7 +214,7 @@ Navigate to **Config** in the header bar, or go to `/ui/config`. This page surfa
 
 Each row shows the config key, its current value (masked as `••••••` for secrets), the type, and a brief description from `cfg::describe_settings()`. Secret rows carry a small **Reveal** button — click it to fetch the raw value through an admin-gated endpoint. Non-secret values are shown directly.
 
-The page is read-only — config changes go through `disc.toml` or environment variables, not the UI. The Config page exists so operators can verify what the running server is actually using without grepping logs or reading `disc.toml` from the host.
+The Config page exists so operators can verify what the running server is actually using without grepping logs or reading `disc.toml` from the host. Administrators — the service credential, or a user with the `admin` or `superuser` role — can also edit an allowlisted setting in place: the page sends `POST /config`, which runs `ALTER SYSTEM SET`. Anyone else gets `403`, even with auth off, and a key outside the [configure allowlist](edgeql.md#:~:text=Available%20Configuration%20Keys) is a `400`.
 
 The underlying API is `GET /config` — also useful from CLI/CI scripts. Secrets are masked there too unless an admin token is presented.
 
