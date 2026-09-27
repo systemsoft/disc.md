@@ -83,7 +83,7 @@ A multi link comes back as an array of rows. A single link selected with a sub-s
 
 A link selected without a sub-shape (`author`, `posts`) is its targets’ ids: a string for a single link (`null` when unset), an array for a multi link (`[]` when empty).
 
-A sub-shape takes its own `filter`, `order by`, `offset` and `limit`, applied to the link’s objects — a stored link’s, a backlink’s, or a computed link’s result, as in Gel:
+A sub-shape takes its own `filter`, `order by`, `offset` and `limit`, applied to the link’s objects — a stored link’s, a backlink’s, or a computed link’s result, as in Gel. Link properties (`@role`) can be selected, filtered and ordered on in such a sub-shape too:
 
 ```edgeql
 select User {
@@ -126,7 +126,7 @@ select User {
 
 Computed fields use the `:=` assignment syntax. The `.property` notation refers to the current object being selected.
 
-A computed field of objects reads as a stored link does. A single one is `[{ … }]` with a sub-shape (`writer := .author { name }`), or `null` when empty, and its target’s id without one; a multi one is an array of objects with a sub-shape and of ids without. Whether it is single is inferred as in Gel: a path through single links, a `(select … limit 1)`, a select filtered on `.id` or on an `exclusive` property compared with one value, or an `assert_single(…)` is single.
+A computed field of objects reads as a stored link does. A single one is `[{ … }]` with a sub-shape (`writer := .author { name }`), or `null` when empty, and its target’s id without one; a multi one is an array of objects with a sub-shape and of ids without. Whether it is single is inferred as in Gel: a path through single links, a `(select … limit 1)`, a select filtered on `.id` or on an `exclusive` property compared with one value, or an `assert_single(…)` is single. A schema computed declared `single` reads as single; `single` on one that may yield several is a schema error (see [Schema → Computed Properties](schema.md#:~:text=single%20narrows%20it)).
 
 ### `FILTER`
 
@@ -166,7 +166,7 @@ select Post {
 } filter .author.name = "Ada";
 ```
 
-Comparing objects compares their identity, as in Gel: `filter .author = (select User filter .email = <str>$e)`, `.tags in (select Tag filter …)`, `?=`, and a `with` name bound to a select (`with u := (select User filter .email = <str>$e) select Post filter .author = u`) all compare ids; a multi link compares each target’s id.
+Comparing objects compares their identity, as in Gel: `filter .author = (select User filter .email = <str>$e)`, `.tags in (select Tag filter …)`, `?=`, and a `with` name bound to a select (`with u := (select User filter .email = <str>$e) select Post filter .author = u`) all compare ids; a multi link compares each target’s id. A `with` binding of several objects compares with each of them: `with us := (select User filter .active) select Post filter .author = us` keeps posts by any active user, and `!=`, `in`, `not in` read the same way. `?=` and `?!=` treat an empty binding as the empty set — `.author ?= us` keeps posts with no author, `.author ?!= us` those with one.
 
 #### Filtering on multi paths
 
@@ -297,7 +297,7 @@ Link values are set using a subquery that resolves to the target object.
 
 A single link holds one object, so, as in Gel, the value must be provably at most one: a select filtered on `.id` or on an `exclusive` property compared with one value, or one with `limit 1` (or an id cast, `<User><uuid>$id`). Any other select — `(select User filter .name = "Ada")`, or a `with` name bound to one — is a compile error (`possibly more than one element returned by an expression for a link 'author' declared as 'single'`). Wrap it in `assert_single(…)` to check at run time instead.
 
-The same rule holds for a single property’s value, and for a path from a `with` binding, in an `insert` or an `update`: after `with n := (select Counter)`, `number := n.last` is a compile error (`possibly more than one element returned by an expression for a property 'number' declared as 'single'`). It compiles when the binding is provably at most one object — a select, `update` or `delete` filtered on `.id` or on an `exclusive` property compared with one value, or with `limit 1` — or when the value is one by construction: `assert_single(n.last)`, an aggregate such as `max(n.last)`. A binding of an `insert` is always one object.
+The same rule holds for a single property’s value, and for a path from a `with` binding, in an `insert` or an `update`: after `with n := (select Counter)`, `number := n.last` is a compile error (`possibly more than one element returned by an expression for a property 'number' declared as 'single'`). It compiles when the binding is provably at most one object — a select, `update` or `delete` filtered on `.id` or on an `exclusive` property compared with one value, or with `limit 1` — or when the value is one by construction: `assert_single(n.last)`, an aggregate such as `max(n.last)`. A binding of an `insert` is always one object, and so is one wrapped in `assert_single`: after `with n := assert_single((select Counter filter .name = "a"))`, `n.last` is one value, and the query fails at run time with `CardinalityViolationError` if the select finds more than one object.
 
 ### Insert with Nested Insert
 
@@ -355,10 +355,12 @@ Where a single link value is expected, an object cast over a uuid stands for the
 
 ```edgeql
 insert GitRef { program := <Program><uuid>$p, name := <str>$n, target := <str>$t };
-# equivalent to: program := (select Program filter .id = <uuid>$p)
+# like: program := (select Program filter .id = <uuid>$p), but a missing id raises (below)
 ```
 
-The same form works in a mutation filter: `update GitRef filter .program = <Program><uuid>$p …` compiles to `program_id = $1`. A misspelled type in this form is a compile error. The cast is only the id, so a shape over it (`select (<Program><uuid>$p) { name }`) is rejected — write `select Program { name } filter .id = <uuid>$p`.
+The same form works in a mutation filter: `update GitRef filter .program = <Program><uuid>$p …`. A misspelled type in this form is a compile error. The cast is only the id, so a shape over it (`select (<Program><uuid>$p) { name }`) is rejected — write `select Program { name } filter .id = <uuid>$p`.
+
+As in Gel, the cast checks that the object exists: an id no `Program` (or subtype) the query may read has — a missing id, or another type’s object’s — raises `CardinalityViolationError: 'default::Program' with id '…' does not exist` (SQLSTATE 21000), wherever the cast appears: a filter, a `select`, `count`, `in`, or a link value in an `insert` or `update` (which then writes nothing). A cast of the empty set is the empty set. To have a filter match nothing instead of failing when the id is missing, compare the link’s id: `filter .program.id = <uuid>$p`.
 
 ### `UNLESS CONFLICT` without `ELSE`
 
@@ -1173,11 +1175,25 @@ by month, .status;
 # key: { "month": "2026-03-01T00:00:00+00:00", "status": "paid" }, grouping: ["month", "status"]
 ```
 
-Selecting over a group (`select (group User by .status) { key, n := count(.elements) }`) is not yet supported: count or total a group’s `elements` in the client.
+### Selecting Over a Group
+
+A `select` over a `group` works as in Gel. Its shape reads each group’s `key`, `grouping` and `elements` — nothing else, so `{ status }` is an error — and aggregates of the elements; `filter`, `order by`, `offset` and `limit` read the group and the shape’s computeds:
+
+```edgeql
+select (group User by .status) {
+  key: { status },
+  n := count(.elements)
+}
+filter .n > 1
+order by .n desc
+limit 5;
+```
+
+`elements: { name }` gives the elements a shape; without one they take the group’s (`group User { name } by …`).
 
 ### `FILTER` on Groups
 
-A `filter` after `by` keeps the groups it holds for; in it, the grouped type stands for the group’s objects, so `count(User)` is the group’s size. This is a Disc extension (it compiles to SQL `HAVING`); Gel’s `group` has no `filter`.
+A `filter` after `by` keeps the groups it holds for; in it, the grouped type stands for the group’s objects, so `count(User)` is the group’s size. This is a Disc extension (it compiles to SQL `HAVING`); Gel’s `group` has no `filter`. Gel rejects this form — for a query that also runs on Gel, select over the group and filter that: `select (group User by .city) { key: { city }, n := count(.elements) } filter .n > 10`.
 
 ```edgeql
 group User { name }
@@ -1482,19 +1498,24 @@ Access individual elements using zero-based indexing:
 select [10, 20, 30, 40][0];    # Returns 10
 select [10, 20, 30, 40][2];    # Returns 30
 select [10, 20, 30, 40][-1];   # Returns 40 (last element)
+select "abc"[1];               # Returns "b"
 ```
+
+An index past either end raises `InvalidValueError`, as in Gel: `select [10, 20, 30][5]` fails with `array index 5 is out of bounds` (`string index …` for a `str`, `byte string index …` for `bytes`). Use `array_get` for an element that may be missing — it returns the empty set instead. Strings and `bytes` index the same way as arrays.
 
 ### Array Slicing
 
-Extract sub-arrays with `[start:end]` syntax; a negative bound counts from the end:
+Extract sub-arrays with `[start:end]` syntax — 0-based, end-exclusive; a negative bound counts from the end and an omitted bound means the start or end:
 
 ```edgeql
-select [(1, "a"), (2, "b"), (3, "c")][1:];    # Returns [(2, "b"), (3, "c")]
+select [10, 20, 30][1:3];                      # Returns [20, 30]
+select [10, 20, 30][:-1];                      # Returns [10, 20]
 select [(1, "a"), (2, "b"), (3, "c")][-2:];   # Returns [(2, "b"), (3, "c")]
 select "hello"[1:3];                           # Returns "el"
+select b"hello"[1:3];                          # Returns b"el"
 ```
 
-Slicing works on strings and on arrays of tuples. Slicing any other array — `[10, 20, 30, 40, 50][1:3]`, an `array<str>` property — is not yet supported: it fails in PostgreSQL (`function pg_catalog.substring(integer[], integer, integer) does not exist`).
+As in Gel, a bound out of range is clamped rather than raising: `[10, 20, 30][-5:10]` is the whole array and `[10, 20, 30][2:1]` is `[]`. An empty bound (`[<int64>{}:2]`) makes the result the empty set. Slicing works on every array (literals, parameters, stored `array<…>` properties), on strings and on `bytes`.
 
 ### Array Functions
 
@@ -1522,7 +1543,7 @@ select (1, "hello", true);
 select (3.14, 42);
 ```
 
-A tuple or array built from paths of one type is one value per object, as in Gel: `select (User.name, User.age)` gives one tuple per user, and none for a user whose `age` is empty.
+A tuple or array built from paths of one type is one value per object, as in Gel: `select (User.name, User.age)` gives one tuple per user, and none for a user whose `age` is empty. The same holds wherever a tuple or array is built — a `select`, a `for … union` body, a computed: one with an empty element is no value at all, so `select (1, <str>{})` returns `[]` and a computed `t := (.a, .b)` is empty for an object missing `b`.
 
 ### Tuple Element Access
 
@@ -1551,6 +1572,16 @@ select (name := "Ada", age := 30).name;   # Returns "Ada"
 select (name := "Ada", age := 30).age;    # Returns 30
 ```
 
+An element keeps its own type: `(a := 1).a` is an `int64`, so `(a := 1).a + 1` returns `2`. Element access works through paths too — `select Rec.t.a` on a stored `tuple<a: int64, b: str>` property returns the bare `a` values, one per object.
+
+Tuples united into one set or array — an array literal, `++`, a set literal `{…}`, `union` — keep their names only when every tuple has the same names; otherwise the result is unnamed, as in Gel:
+
+```edgeql
+select [(a := 1)] ++ [(a := 2)];     # Returns [(a := 1), (a := 2)]
+select [(a := 1)] ++ [(2,)];         # Returns [(1,), (2,)]
+select (a := 1) union (b := 2);      # Returns {(1,), (2,)}
+```
+
 ### Arrays of Tuples
 
 An `array<tuple<…>>` has one form everywhere — a literal, a parameter, an `array_agg` of tuples, a stored property: a JSON array of tuples, stored as `jsonb`. So `++`, `array_agg`, `array_unpack`, `len`, indexing (negative too), slicing, comparisons (`=`, `<`, `in`), `order by`, `distinct` and `group` all work on it, as in Gel:
@@ -1559,6 +1590,8 @@ An `array<tuple<…>>` has one form everywhere — a literal, a parameter, an `a
 select [(1, "a")] ++ <array<tuple<int64, str>>>$more;
 select Route { first := .stops[0], rest := .stops[1:], n := len(.stops) };
 ```
+
+A field of an indexed element reads straight off it — `[(n := 1)][0].n`, `.stops[0].x` — and indexing, slicing and tuple access apply to a path’s set element by element: `select Route.stops[1:]`, `select Route.stops[1].y`.
 
 A parameter written to an array-of-tuples property is stored with each tuple cast to its declared types, so it compares equal to a literal of the same value.
 
@@ -1886,7 +1919,16 @@ select to_bool("true");
 select to_uuid("550e8400-e29b-41d4-a716-446655440000");
 select to_datetime("2024-01-15T00:00:00Z");
 select to_json('{"key": "value"}');
+
+# With a format, as in Gel (PostgreSQL's to_char / to_timestamp / to_number patterns)
+select to_str(<datetime>"2024-01-02T03:04:05Z", "YYYY-MM-DD HH24:MI");   # "2024-01-02 03:04" (UTC)
+select to_str(1234567, "9,999,999");                                     # " 1,234,567"
+select to_datetime("2024-01-02 03:04:05 +02", "YYYY-MM-DD HH24:MI:SS TZH");
+select cal::to_local_date("02/01/2024", "DD/MM/YYYY");
+select to_int64("1,234", "9,999");                                       # 1234
 ```
+
+See [Functions → `to_str`](functions.md#:~:text=With%20a%20format%2C%20to_str%20follows%20Gel) for which formats each type takes, and the zone, epoch-seconds and field-by-field forms of `to_datetime` and the `cal::to_local_*` functions.
 
 ### JSON Functions
 

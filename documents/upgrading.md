@@ -4,6 +4,22 @@ Behaviour changes that can affect an existing deployment or client, newest first
 
 ---
 
+## An object cast of a missing id raises (breaking)
+
+`<T><uuid>$p` now checks that a `T` with that id exists, as in Gel: a missing id, or another type’s object’s id, raises `CardinalityViolationError: 'default::T' with id '…' does not exist` (SQLSTATE `21000`) in a filter, a `select`, `count`, `in` or a link value of an `insert` or `update`. Before, a filter matched nothing and a link write failed with a foreign-key error (`23503`). Callers that catch `ForeignKeyViolationError` around link writes should also catch the SDK’s new `CardinalityViolationError`. For a filter that should just match nothing, compare the id: `filter .program.id = <uuid>$p`. See [EdgeQL → Linking by id](edgeql.md#:~:text=As%20in%20Gel%2C%20the%20cast%20checks%20that%20the%20object%20exists).
+
+## Indexing past the end raises
+
+An array index past either end — `[10, 20, 30][5]`, `.tags[-4]` on a stored array — raises `InvalidValueError` (`array index 5 is out of bounds`), as in Gel; it returned nothing. Strings and `bytes`, which can now be indexed, raise the same way. Use `array_get(arr, i)` where an index may be out of range. Slices are unaffected: out-of-range slice bounds are clamped. See [EdgeQL → Array Indexing](edgeql.md#:~:text=Array%20Indexing).
+
+## `single` on a computed is checked
+
+A schema computed declared `single` whose expression may yield several values — `single first := (select .<post[is C] order by .created)` — is now a schema error (`possibly more than one element returned by an expression for the computed link 'first' … explicitly declared as 'single'`), as in Gel. Add `limit 1`, filter on `.id` or an `exclusive` property, or wrap it in `assert_single(…)`. See [Schema → Computed Properties](schema.md#:~:text=single%20narrows%20it).
+
+## United tuples with different names are unnamed
+
+Tuples united by an array literal, `++`, a set literal or `union` keep their names only when all have the same ones, as in Gel: `[(a := 1)] ++ [(2,)]` is `[[1], [2]]`, not `[{ "a": 1 }, [2]]`. Code that read `.a` from such a result should read the element by position, or give every tuple the same names. See [EdgeQL → Named Tuple Field Access](edgeql.md#:~:text=Named%20Tuple%20Field%20Access).
+
 ## Mutations answer with the set of rows they wrote (breaking)
 
 A bare `insert`, `update`, `delete` or `for … union (insert …)` answers with the set of objects it wrote, as in Gel: `[{ … }, …]`, or `[]` when it wrote none. Before, an insert answered with the row object, an update with its first row or `{ "updated": 0 }`, and a delete with `{ "deleted": n }`. Each row is still the whole stored row (Gel returns only `{ "id" }`).

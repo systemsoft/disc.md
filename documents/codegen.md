@@ -203,6 +203,8 @@ SQL type names (`text`, `integer`, `boolean`, `timestamptz`, etc.) are also reco
 
 Object types that do not match any built-in mapping are used as-is: a multi link to `User` is `User[]`. A single link selected with a sub-shape arrives as a one-element array of its row, or `null` when an optional one is empty, so it is declared `author: [User]` (optional: `editor?: [User] | null`) — read `post.author[0].name`, not `post.author.name`. This differs from Gel, which returns the object itself. Without a sub-shape a single link is its target’s id.
 
+A schema computed is typed by what its expression yields, as Gel infers it — not only a path (`auth := .author`) but an aggregate, an operator or a built-in call. `count(…)` is a required `int64` (`bigint`); `++` is required only when every operand is (`full := .nick ++ " " ++ .name` is `full?: string | null` when `nick` is optional); `min`/`max` are required only when their argument is; `math::mean` and the other averages are `float64`; a comparison is a `bool`; `array_agg` is a required array. A declared `single` or `multi` sets the cardinality (`single first_post := (select … limit 1)` is `first_post?: [Post] | null`). The builders revive these like stored properties — an `int64` to `bigint`, a `datetime` to `Date`. Only a call to a user-defined function stays untyped (`unknown` in TypeScript).
+
 ## Insert Types
 
 Insert types are smart subsets of the full interface, designed for creating new objects. They exclude properties that should not or cannot be set during insertion.

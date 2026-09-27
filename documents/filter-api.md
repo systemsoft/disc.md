@@ -201,7 +201,23 @@ await client.channel.filter({
 // → ... { *, videos: { * } order by .created desc }
 ```
 
-The ordering applies to that link only (it compiles to an `ORDER BY` inside the link’s `jsonb_agg`) and nests to any depth. An `order_by` placed at the **top level** of `select` is ignored — top-level result ordering uses the sibling `order_by` (see [Ordering, limit, offset](#:~:text=Ordering%2C%20limit%2C%20offset,-Reserved%20keys%20order_by)). Capping a linked set (`limit`/`offset` on a sub-shape) has no filter-object form yet; see [Not yet supported](#:~:text=query%20builder.-,Not%20yet%20supported,-A%20few%20patterns).
+The ordering applies to that link only (it compiles to an `ORDER BY` inside the link’s `jsonb_agg`) and nests to any depth. An `order_by` placed at the **top level** of `select` is ignored — top-level result ordering uses the sibling `order_by` (see [Ordering, limit, offset](#:~:text=Ordering%2C%20limit%2C%20offset,-Reserved%20keys%20order_by)).
+
+### Capping a linked set
+
+A link sub-shape also takes `offset` and `limit` (non-negative integers) to page that link’s rows, after its `filter` and `order_by`:
+
+```ts
+await client.channel.filter({
+  select: {
+    "*": true,
+    videos: { "*": true, limit: 5, order_by: ["-created"] } // the five newest videos
+  }
+});
+// → ... { *, videos: { * } order by .created desc limit 5 }
+```
+
+Like `filter` and `order_by`, an `offset` or `limit` at the **top level** of `select` is ignored — top-level paging uses the sibling `offset` / `limit`.
 
 ---
 
@@ -430,7 +446,6 @@ When the object form doesn’t fit (deeply custom EdgeQL, schema features the fi
 
 A few patterns have no filter-object form yet and need raw EdgeQL:
 
-- **`limit` and `offset` on a linked set.** A nested `select` takes `order_by` only; raw EdgeQL caps a sub-shape: `select Channel { videos: { * } order by .created desc limit 5 }`.
 - **Backlinks the source type doesn’t declare as a field.** A filter object has no key for them; raw EdgeQL takes Gel’s syntax (`filter .<author[is Post].title = <str>$t`).
 
 These are tracked alongside the closed gaps in the test suite at `sdk/filter-compiler-edgeql.test.ts` and `compiler/compiler.test.ts`.

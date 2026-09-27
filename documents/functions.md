@@ -895,12 +895,14 @@ select array_agg(User.name);
 
 Type conversion functions cast values from one type to another. They compile to PostgreSQL `CAST` expressions.
 
+The string parsers `to_int16`, `to_int32`, `to_int64`, `to_float32`, `to_float64`, `to_bigint` and `to_decimal` take an optional format as a second argument, as in Gel: a PostgreSQL `to_number` pattern (`to_int64('1,234', '9,999')` is `1234`; an integer parser rounds, so `to_int64('12.7', '99.9')` is `13`). An empty format is an error (`to_int64(): "fmt" argument must be a non-empty string`); an empty-set format parses as without one.
+
 ### `to_str`
 
 Converts any value to a string.
 
 ```
-to_str(val: any) -> str
+to_str(val: any, fmt: optional str = {}) -> str
 ```
 
 **Example:**
@@ -911,11 +913,30 @@ select to_str(42);
 
 select to_str(<datetime>'2024-01-02T00:00:00Z');
 # => '2024-01-02T00:00:00+00:00'
+
+select to_str(<datetime>'2024-01-02T03:04:05Z', 'YYYY-MM-DD HH24:MI:SS');
+# => '2024-01-02 03:04:05'
+
+select to_str(123, 'FM999');
+# => '123'
+
+select to_str(['a', 'b'], ', ');
+# => 'a, b'
 ```
 
 **SQL equivalent:** `CAST(42 AS text)`
 
-A `datetime` or `cal::local_datetime` becomes its ISO 8601 text, as in Gel — for `<str>` casts too. The form with a format argument, `to_str(dt, fmt)`, is not yet supported.
+A `datetime` or `cal::local_datetime` becomes its ISO 8601 text, as in Gel — for `<str>` casts too.
+
+With a format, `to_str` follows Gel, which hands it to PostgreSQL’s `to_char`:
+
+- A `datetime` is formatted in UTC (`TZ` is `UTC`). A `cal::local_datetime`, `cal::local_date` or `cal::local_time` is formatted as a local value (a local time on today’s UTC date).
+- A `duration`, `cal::relative_duration` or `cal::date_duration` takes only Gel’s allowed fields (`YYYY`, `MM`, `DD`, `HH24`, `MI`, `SS`, `MS`, …); a name such as `Day` or `Mon` is `invalid format specification for an std::duration value`.
+- A number takes a `to_char` number pattern: `to_str(123, '999')` is `' 123'`, `to_str(1234567, '9,999,999')` is `' 1,234,567'`.
+- A `json` takes only `'pretty'`, which indents it; any other format is `to_str(): format '…' is invalid`.
+- An `array<str>` is joined with the format as the delimiter, as `array_join` does.
+
+An empty format is `to_str(): "fmt" argument must be a non-empty string`; an empty-set format gives the text without one. A `str` or `bool` takes no format.
 
 ---
 
@@ -924,7 +945,7 @@ A `datetime` or `cal::local_datetime` becomes its ISO 8601 text, as in Gel — f
 Converts a value to a 16-bit integer.
 
 ```
-to_int16(val: any) -> int16
+to_int16(val: any, fmt: optional str = {}) -> int16
 ```
 
 **Example:**
@@ -942,7 +963,7 @@ select to_int16('42');
 Converts a value to a 32-bit integer.
 
 ```
-to_int32(val: any) -> int32
+to_int32(val: any, fmt: optional str = {}) -> int32
 ```
 
 **Example:**
@@ -960,7 +981,7 @@ select to_int32('42');
 Converts a value to a 64-bit integer.
 
 ```
-to_int64(val: any) -> int64
+to_int64(val: any, fmt: optional str = {}) -> int64
 ```
 
 **Example:**
@@ -978,7 +999,7 @@ select to_int64('42');
 Converts a value to a 32-bit floating-point number.
 
 ```
-to_float32(val: any) -> float32
+to_float32(val: any, fmt: optional str = {}) -> float32
 ```
 
 **Example:**
@@ -996,7 +1017,7 @@ select to_float32('3.14');
 Converts a value to a 64-bit floating-point number.
 
 ```
-to_float64(val: any) -> float64
+to_float64(val: any, fmt: optional str = {}) -> float64
 ```
 
 **Example:**
@@ -1014,7 +1035,7 @@ select to_float64('3.14');
 Converts a value to an arbitrary-precision integer.
 
 ```
-to_bigint(val: any) -> bigint
+to_bigint(val: any, fmt: optional str = {}) -> bigint
 ```
 
 **Example:**
@@ -1032,7 +1053,7 @@ select to_bigint('999');
 Converts a value to an arbitrary-precision decimal.
 
 ```
-to_decimal(val: any) -> decimal
+to_decimal(val: any, fmt: optional str = {}) -> decimal
 ```
 
 **Example:**
@@ -1625,7 +1646,10 @@ select datetime_truncate(datetime_current(), 'month');
 Converts a string or other value to a datetime (timestamp with time zone).
 
 ```
-to_datetime(val: any) -> datetime
+to_datetime(val: any, fmt: optional str = {}) -> datetime
+to_datetime(local: cal::local_datetime, zone: str) -> datetime
+to_datetime(epochseconds: int64 | float64 | decimal) -> datetime
+to_datetime(year: int64, month: int64, day: int64, hour: int64, min: int64, sec: float64, timezone: str) -> datetime
 ```
 
 **Example:**
@@ -1633,7 +1657,17 @@ to_datetime(val: any) -> datetime
 ```edgeql
 select to_datetime('2024-01-01');
 select to_datetime('2024-01-01T12:00:00Z');
+select to_datetime('2024-01-02 03:04:05 +02', 'YYYY-MM-DD HH24:MI:SS TZH');
+# => 2024-01-02T01:04:05+00:00
+select to_datetime(<cal::local_datetime>'2024-01-02T03:00', 'Europe/Berlin');
+# => 2024-01-02T02:00:00+00:00
+select to_datetime(1700000000);
+# => 2023-11-14T22:13:20+00:00
+select to_datetime(2024, 1, 2, 3, 4, 5.5, 'Europe/Berlin');
+# => 2024-01-02T02:04:05.5+00:00
 ```
+
+A format is a PostgreSQL `to_timestamp` pattern and, as in Gel, must include the time zone (`TZH`): without one it is `missing required time zone in format: '…'`, and an input without one is `missing required time zone in input '…'`.
 
 **SQL equivalent:** `CAST('2024-01-01' AS timestamp with time zone)`
 
@@ -1663,14 +1697,21 @@ select to_duration('P1DT12H');
 Converts a value to a local date (date without time zone information).
 
 ```
-cal_to_local_date(val: any) -> cal::local_date
+cal_to_local_date(val: any, fmt: optional str = {}) -> cal::local_date
+cal_to_local_date(dt: datetime, zone: str) -> cal::local_date
+cal_to_local_date(year: int64, month: int64, day: int64) -> cal::local_date
 ```
 
 **Example:**
 
 ```edgeql
 select cal::to_local_date('2024-01-01');
+select cal::to_local_date('02/01/2024', 'DD/MM/YYYY');                  # 2024-01-02
+select cal::to_local_date(<datetime>'2024-01-02T20:00:00Z', 'Asia/Tokyo'); # 2024-01-03
+select cal::to_local_date(2024, 1, 2);
 ```
+
+A format for any of the `cal::to_local_*` parsers must not name a time zone, as in Gel: `TZH` in it is `unexpected time zone in format: '…'`.
 
 **SQL equivalent:** `CAST('2024-01-01' AS date)`
 
@@ -1681,13 +1722,18 @@ select cal::to_local_date('2024-01-01');
 Converts a value to a local time (time without time zone information).
 
 ```
-cal_to_local_time(val: any) -> cal::local_time
+cal_to_local_time(val: any, fmt: optional str = {}) -> cal::local_time
+cal_to_local_time(dt: datetime, zone: str) -> cal::local_time
+cal_to_local_time(hour: int64, min: int64, sec: float64) -> cal::local_time
 ```
 
 **Example:**
 
 ```edgeql
 select cal::to_local_time('12:00:00');
+select cal::to_local_time('2024 13:02', 'YYYY HH24:MI');                          # 13:02:00
+select cal::to_local_time(<datetime>'2024-01-02T20:00:00Z', 'America/New_York'); # 15:00:00
+select cal::to_local_time(3, 4, 5.5);
 ```
 
 **SQL equivalent:** `CAST('12:00:00' AS time without time zone)`
@@ -1699,13 +1745,18 @@ select cal::to_local_time('12:00:00');
 Converts a value to a local datetime (timestamp without time zone information).
 
 ```
-cal_to_local_datetime(val: any) -> cal::local_datetime
+cal_to_local_datetime(val: any, fmt: optional str = {}) -> cal::local_datetime
+cal_to_local_datetime(dt: datetime, zone: str) -> cal::local_datetime
+cal_to_local_datetime(year: int64, month: int64, day: int64, hour: int64, min: int64, sec: float64) -> cal::local_datetime
 ```
 
 **Example:**
 
 ```edgeql
 select cal::to_local_datetime('2024-01-01T12:00:00');
+select cal::to_local_datetime('2024-01-02 03:04:05', 'YYYY-MM-DD HH24:MI:SS');
+select cal::to_local_datetime(<datetime>'2024-01-02T20:00:00Z', 'Europe/Berlin'); # 2024-01-02T21:00:00
+select cal::to_local_datetime(2024, 1, 2, 3, 4, 5.5);
 ```
 
 **SQL equivalent:** `CAST('2024-01-01T12:00:00' AS timestamp without time zone)`

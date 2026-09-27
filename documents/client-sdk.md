@@ -657,6 +657,7 @@ All SDK errors extend `DiscClientError`, which carries a `code` property from th
 | `ConstraintViolationError` | `QUERY_ERROR`   | `DiscQueryError` for SQLSTATE class 23; carries `constraint`, `table`, `detail` |
 | `UniqueViolationError` | `QUERY_ERROR`       | `ConstraintViolationError` for 23505 — a duplicate on an `exclusive` constraint or unique index |
 | `ForeignKeyViolationError` | `QUERY_ERROR`   | `ConstraintViolationError` for 23503 — a link to a row that does not exist |
+| `CardinalityViolationError` | `QUERY_ERROR`  | `DiscQueryError` for 21000 — `assert_single` of several, or an object cast `<T><uuid>$p` of an id no `T` has |
 | `SerializationFailureError` | `QUERY_ERROR`  | `DiscQueryError` for 40001 — retry the whole transaction |
 | `DeadlockError`        | `QUERY_ERROR`       | `DiscQueryError` for 40P01 — retry the whole transaction |
 | `DiscServerError`      | `SERVER_ERROR`      | Server returned a 5xx status code                   |
@@ -958,6 +959,7 @@ The complete list of exports from `disc/sdk/mod.ts`:
 
 | Export                      | Description                                                          |
 | :-------------------------- | :------------------------------------------------------------------- |
+| `CardinalityViolationError` | Query error with SQLSTATE 21000                                      |
 | `ConstraintViolationError`  | Query error with SQLSTATE class 23 (`constraint`, `table`, `detail`) |
 | `createQueryError`          | Build the typed query error for a raw `errors` envelope              |
 | `DeadlockError`             | Query error with SQLSTATE 40P01                                      |

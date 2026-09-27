@@ -356,7 +356,7 @@ select Post { title, recent: { body } order by .created limit 1 } filter exists 
 
 A computed over a backlink’s property (`bodies` above) is a multi computed property: an array of its values in a shape, and a set in `filter "…" in .bodies` or `count(.bodies)`.
 
-A computed may be declared in any of Gel’s forms, `[required] [single | multi] [link | property] name := expr;`. Its cardinality is inferred as in Gel: single for a path through single links or a `(select … limit 1)`, multi through a multi link or a backlink; required when the expression is never empty (`.author` of a `required` link). `multi` widens it. `required` on an expression that may be empty is Gel’s error `possibly an empty set returned by an expression for the computed link '…' of object type '…' explicitly declared as 'required'`, and a shape inside a schema computed (`recent := .<post[is Comment] { body }`) is Gel’s error `including a shape on schema-defined computed links is not yet supported`.
+A computed may be declared in any of Gel’s forms, `[required] [single | multi] [link | property] name := expr;`. Its cardinality is inferred as in Gel: single for a path through single links or a `(select … limit 1)`, multi through a multi link or a backlink; required when the expression is never empty (`.author` of a `required` link). `multi` widens it. `single` narrows it, and is checked as in Gel: on an expression that may yield several values it is the schema error `possibly more than one element returned by an expression for the computed link 'first' of object type 'P' explicitly declared as 'single'` (`property` for a computed property). An expression is provably single when it is a `(select … limit 1)`, a select filtered on `.id` or an `exclusive` property, an `assert_single(…)`, an aggregate (`count`, `array_agg`, …), or an operator over single values. The declared cardinality is what a query returns and what [codegen](codegen.md) declares. `required` on an expression that may be empty is Gel’s error `possibly an empty set returned by an expression for the computed link '…' of object type '…' explicitly declared as 'required'`, and a shape inside a schema computed (`recent := .<post[is Comment] { body }`) is Gel’s error `including a shape on schema-defined computed links is not yet supported`.
 
 ### Property Qualifiers Summary
 
@@ -788,6 +788,8 @@ select User {
   name
 };
 ```
+
+A link property can also be read, filtered and ordered on in a sub-shape that has an `offset` or `limit`, on the stored link, a computed link to it or a backlink over it: `friends: { name, @since } filter @nickname != "x" order by @since desc limit 5`. It comes back keyed `"@since"`.
 
 ### Abstract Links
 
@@ -1596,7 +1598,7 @@ module default {
 };
 ```
 
-Named tuples are also stored as `jsonb` in PostgreSQL, preserving the field names as JSON keys.
+Named tuples are also stored as `jsonb` in PostgreSQL, preserving the field names as JSON keys. An element reads back with its declared type: `select User.address.city` returns the bare `str` values, one per user (see [EdgeQL → Named Tuple Field Access](edgeql.md#:~:text=Named%20Tuple%20Field%20Access)).
 
 ---
 

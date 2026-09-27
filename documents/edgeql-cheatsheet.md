@@ -317,7 +317,9 @@ select (<json>$doc)['name'];      # subscript a cast value: parenthesize
 select <array<str>>item['tags'];  # from JSON: keeps order, [] stays []
 
 # Object cast in link position = the object with that id
+# (a missing id raises CardinalityViolationError, SQLSTATE 21000)
 insert Post { author := <User><uuid>$author_id, title := <str>$t };
+select Post filter .author.id = <uuid>$author_id;   # empty, not an error, when missing
 
 # bytes travel as base64 in JSON, both ways
 insert Blob { data := <bytes>$data };   # variables: { "data": "AQID" }

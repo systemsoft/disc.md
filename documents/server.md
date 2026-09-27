@@ -810,6 +810,20 @@ SCRAM authenticates the connection, not a Disc user: with access policies on, ev
 
 The binary protocol shares the same schema as the HTTP handler. Queries submitted via binary protocol go through the same EdgeQL parser, compiler, and execution pipeline. This means existing Gel client libraries (Python, JavaScript, Go, etc.) can connect to a Disc server.
 
+Results are described and encoded as Gel does:
+
+- A link in a shape is a nested object (`{id}` without a sub-shape); a multi link, a multi property and a computed set are sets of their element type.
+- A `group` answers free objects `{key, grouping, elements}`: `key` an object of the key names, `grouping` a set of `str`, `elements` a set of the element shape.
+- A bare `insert`, `update` or `delete` answers the set of objects it wrote, each its `{id}`.
+- JSON output works: `queryJSON` answers the whole result as one JSON array, `querySingleJSON` the one object (or `null`), and the JSON_ELEMENTS format one JSON value per element — each described as `std::str`.
+
+Remaining differences from Gel:
+
+- A shape does not carry Gel’s implicit `id` field; select `id` explicitly when a client needs it.
+- A link property (`@since`), a splat (`{ * }`) and a type-intersection field (`[is Circle].radius`) in a shape are described as an optional `uuid` rather than their own type.
+- `querySingleJSON` of a query that returns more than one row does not raise; each row is sent.
+- Output format NONE still sends a shape descriptor (no data).
+
 ---
 
 ## Multi-Database
