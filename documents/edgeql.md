@@ -1650,7 +1650,7 @@ configure session set query_execution_timeout := "30s";
 
 ### Database Configuration
 
-Settings that apply to the entire database:
+Settings that apply to the current database (PostgreSQL’s per-database value, `ALTER DATABASE <current> SET`), which every new connection to it starts with:
 
 ```edgeql
 configure database set work_mem := "256MB";
@@ -1658,7 +1658,7 @@ configure database set work_mem := "256MB";
 
 ### System/Instance Configuration
 
-Settings that apply to the entire Disc instance:
+Settings that apply to the entire Disc instance. `configure instance` is Gel’s newer name for `configure system`; both write the same setting:
 
 ```edgeql
 configure system set max_connections := 200;
@@ -1709,7 +1709,7 @@ Only these keys are accepted; any other is a `ConfigurationError` (HTTP `400`, `
 | `default_statistics_target` | Default planner statistics target                |
 | `max_connections`           | Maximum concurrent connections                   |
 
-These map to PostgreSQL settings under the hood (`configure system` is `ALTER SYSTEM SET`). Nothing that holds a secret, names a file or command, or controls logging, networking or replication is configurable.
+These map to PostgreSQL settings under the hood (`configure system` and `configure instance` are `ALTER SYSTEM SET`, `configure database` is `ALTER DATABASE SET` on the current database; `reset` is the matching `RESET`). Nothing that holds a secret, names a file or command, or controls logging, networking or replication is configurable.
 
 ---
 
