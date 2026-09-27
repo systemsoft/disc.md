@@ -132,6 +132,8 @@ Disc supports all standard scalar types. These map directly to PostgreSQL column
 | `datetime`               | Timezone-aware datetime   | `timestamptz`   |
 | `duration`               | Time interval             | `interval`      |
 
+Durations come back as ISO 8601 text, as in Gel: a `duration` as `PT1H2M` (hours never fold into days, so 49 hours is `PT49H`), a `cal::relative_duration` as `P1Y2M3DT4H5M6.5S`, and a `cal::date_duration` as `P3D` (zero is `P0D`). Negative parts carry their own sign (`PT-1H`, `P-3D`). Casts accept both this form and PostgreSQL’s (`<duration>'01:02:00'`).
+
 ### Other Types
 
 | SDL Type   | Description                                   | PostgreSQL Type |

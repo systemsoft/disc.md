@@ -77,6 +77,8 @@ select User {
 
 This fetches each user along with their posts, including each post’s title and creation time. The result is a nested JSON structure.
 
+A multi link comes back as an array of rows. A single link selected with a sub-shape (`author: { name }`) also comes back as an array — one element, or `null` when an optional link is empty — so read `author[0].name`. Gel returns the object itself; the generated clients declare Disc’s shape (see [Codegen](codegen.md)).
+
 ### Deeply Nested Shapes
 
 There is no limit to nesting depth:
@@ -1655,6 +1657,8 @@ Settings that apply to the current database (PostgreSQL’s per-database value, 
 ```edgeql
 configure database set work_mem := "256MB";
 ```
+
+Gel’s spellings `configure current branch` and `configure current database` mean the same thing, for `set` and `reset`.
 
 ### System/Instance Configuration
 

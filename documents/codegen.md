@@ -195,13 +195,13 @@ EdgeQL types are mapped to TypeScript types as follows:
 
 `int64` and `bigint` map to `bigint` (not `number`, which is what Gel’s JS client reads an `int64` as) and `decimal` to `string`, so values beyond what a double holds survive without precision loss. A `bigint` works wherever a query builder takes a value (insert and update data, filter values), and you can pass `bigint` values straight back as raw query variables — `new DiscClient().query("… <int64>$n", { n: 0n })` — and the client encodes them as numeric strings on the wire automatically.
 
-On the way back, `int64`, `bigint` and `decimal` are JSON numbers carrying every digit, as in Gel. The client reads a number a double can’t hold exactly as a string of its digits, and every other number as a plain `number`. The generated builders then turn `int64` and `bigint` fields into `bigint` and `decimal` fields into a string of digits, in every row `select`, `selectById`, `filter`, `insert` and `update` return: in arrays and multi properties, inside tuples and named tuples, on linked objects and in link properties (`"@weight"`). `reviveTyped` does the same for `datetime`, which becomes a `Date` wherever it sits, arrays and tuples included. The `cal::` local types (`cal::local_date`, `cal::local_time`, `cal::local_datetime`) and the durations stay the strings they arrive as: they have no time zone, and a `Date` would pin them to the reader’s. Raw `client.query()` results are not revived by type: there an `int64` is a `number`, or a numeric string past `Number.MAX_SAFE_INTEGER`, which `{ revive: true }` (or `parseInt64`) turns into a `bigint`. The Go client types `bigint` and `decimal` as `json.Number` and the Rust client as `ExactNumber` (a `serde_json::Number` under `arbitrary_precision`), both exact in each direction.
+On the way back, `int64`, `bigint` and `decimal` are JSON numbers carrying every digit, as in Gel. The client reads a number a double can’t hold exactly as a string of its digits, and every other number as a plain `number`. The generated builders then turn `int64` and `bigint` fields into `bigint` and `decimal` fields into a string of digits, in every row `select`, `selectById`, `filter`, `insert` and `update` return: in arrays and multi properties, inside tuples and named tuples, on linked objects and in link properties (`"@weight"`). `reviveTyped` does the same for `datetime`, which becomes a `Date` wherever it sits, arrays and tuples included. The `cal::` local types (`cal::local_date`, `cal::local_time`, `cal::local_datetime`) and the durations stay the strings they arrive as, in Gel’s ISO 8601 form (`PT1H2M`, `P1Y2M3DT4H`, `P0D`): they have no time zone, and a `Date` would pin them to the reader’s. Raw `client.query()` results are not revived by type: there an `int64` is a `number`, or a numeric string past `Number.MAX_SAFE_INTEGER`, which `{ revive: true }` (or `parseInt64`) turns into a `bigint`. The Go client types `bigint` and `decimal` as `json.Number` and the Rust client as `ExactNumber` (a `serde_json::Number` under `arbitrary_precision`), both exact in each direction.
 
 `decimal` and `bigint` never hold NaN or ±Infinity: a cast or write that would produce one fails with an invalid-value error, as in Gel, and `bigint` also rejects fractions from strings (a `decimal` or float cast to `bigint` rounds). `float32`/`float64` do hold them; JSON has no number for them, so they travel as the strings `"NaN"`, `"Infinity"` and `"-Infinity"`. The Go and Rust clients read and write those into their float fields; in TypeScript they arrive as those strings.
 
 SQL type names (`text`, `integer`, `boolean`, `timestamptz`, etc.) are also recognized for backward compatibility and mapped through to their EdgeQL equivalents.
 
-Object types that do not match any built-in mapping are used as-is (e.g., a link to `User` produces the TypeScript type `User`).
+Object types that do not match any built-in mapping are used as-is: a multi link to `User` is `User[]`. A single link selected with a sub-shape arrives as a one-element array of its row, or `null` when an optional one is empty, so it is declared `author: [User]` (optional: `editor?: [User] | null`) — read `post.author[0].name`, not `post.author.name`. This differs from Gel, which returns the object itself. Without a sub-shape a single link is its target’s id.
 
 ## Insert Types
 
@@ -621,7 +621,7 @@ export namespace api {
     /** str (required) */
     key: string;
     /** Link to Merchant (one, required) */
-    merchant: $default.Merchant;
+    merchant: [$default.Merchant];
   }
 
   // ... Insert, Update, FilterVars ...
@@ -634,7 +634,7 @@ export namespace payment {
     /** Unique identifier */
     id: string;
     /** Link to Merchant (one, required) */
-    merchant: $default.Merchant;
+    merchant: [$default.Merchant];
   }
 
   // ... Insert, Update, FilterVars ...
@@ -756,4 +756,4 @@ schema --> schemaToIR() --> IR --> emitTypeScript() (the output documented above
                                --> emitGo()         (a Go package: structs, query builders, stdlib HTTP/JSON client)
 ```
 
-`disc codegen` emits TypeScript; **`--rust`** and **`--go`** emit a Rust client crate (`./dbschema/disc-client-rust`) or a Go client package (`./dbschema/disc-client-go`) instead. All three are available programmatically via `generateRust` / `generateGo` (and the lower-level `emitRust` / `emitGo`), each producing a self-contained, dependency-light client that maps cardinality faithfully (Rust `One -> T` / `AtMostOne -> Option<T>` / `Many -> Vec<T>`; Go `One -> T` / `AtMostOne -> *T` / `Many -> []T`) and talks to the same HTTP `/query` endpoint as the TypeScript client. The `--no-queries` / `--no-client` / `--no-mutations` toggles apply to every target.
+`disc codegen` emits TypeScript; **`--rust`** and **`--go`** emit a Rust client crate (`./dbschema/disc-client-rust`) or a Go client package (`./dbschema/disc-client-go`) instead. All three are available programmatically via `generateRust` / `generateGo` (and the lower-level `emitRust` / `emitGo`), each producing a self-contained, dependency-light client that maps cardinality faithfully (Rust `One -> T` / `AtMostOne -> Option<T>` / `Many -> Vec<T>`; Go `One -> T` / `AtMostOne -> *T` / `Many -> []T`; a single link, which arrives as a one-element array, is `Vec<T>` / `Option<Vec<T>>` in Rust and `[]T` in Go) and talks to the same HTTP `/query` endpoint as the TypeScript client. The `--no-queries` / `--no-client` / `--no-mutations` toggles apply to every target.
