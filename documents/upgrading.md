@@ -4,6 +4,48 @@ Behaviour changes that can affect an existing deployment or client, newest first
 
 ---
 
+## Mutations answer with the set of rows they wrote (breaking)
+
+A bare `insert`, `update`, `delete` or `for … union (insert …)` answers with the set of objects it wrote, as in Gel: `[{ … }, …]`, or `[]` when it wrote none. Before, an insert answered with the row object, an update with its first row or `{ "updated": 0 }`, and a delete with `{ "deleted": n }`. Each row is still the whole stored row (Gel returns only `{ "id" }`).
+
+- Raw `client.query()` callers: read `rows[0]` for an inserted row and `rows.length` for how many objects an update or delete touched.
+- Generated clients keep their API — `insert()` resolves to the row, `update()` to the row or `{ updated: 0 }`, `delete()` to `{ deleted: n }` — once regenerated; a client generated before this release misreads the new answers, so regenerate and deploy it with the server. Rust `update` now returns `Option<…>` and Go `Update` a pointer: `None` / `nil` for an id that doesn’t exist.
+- REST `PATCH /api/T/{id}` of an id that doesn’t exist is `404`; it answered `200` with `{ "updated": 0 }`.
+
+See [Server → `POST /query`](server.md#:~:text=Response%20shape%20by%20statement%20kind).
+
+## A select of values answers with the values (breaking)
+
+A select of anything other than objects answers with the values themselves, as in Gel: `select User.name` is `["ann"]`, `select count(User)` is `[2]`, `select <str>datetime_current()` is `["…"]`, `select (1, 'a')` is `[[1, "a"]]`, `select {1, 2}` is `[1, 2]`. Before, each value came wrapped in an object keyed by a column name (`[{ "count": 2 }]`). Code that read `Object.values(rows[0])[0]` must read `rows[0]`. Selects of objects are unchanged.
+
+## An empty multi link is `[]`
+
+A multi link selected without a sub-shape (`select User { posts }`) is `[]` when it has no targets; it was `null`. In the typed query builder, `select({ posts: true })` is typed `string[]` (was `string[] | null`).
+
+## Computed fields of objects read as links
+
+A computed field in a query shape that yields objects follows the stored-link convention: a single one is `[{ … }]` (or `null`) with a sub-shape and its target’s id without; a multi one is an array of objects with a sub-shape and of ids without. Before, `x := .posts` gave `[{ "id" }]` and `x := (select … limit 1) { … }` gave the object itself. See [EdgeQL → Computed Fields](edgeql.md#:~:text=A%20computed%20field%20of%20objects).
+
+## Single values from a `with` binding must be provably single
+
+`with n := (select Counter)` followed by `number := n.last` in an `insert` or `update` is now a compile error (`possibly more than one element returned by an expression for a property 'number' declared as 'single'`), as in Gel; it used to compile. Filter the binding on `.id` or an `exclusive` property, add `limit 1`, or wrap the value in `assert_single(…)`. The same holds for bindings of an `update` or `delete`. See [EdgeQL → Insert with Links](edgeql.md#:~:text=A%20single%20link%20holds%20one%20object).
+
+## Invalid string escapes are errors
+
+String literals, in EdgeQL and SDL, read escapes as Gel does. `\xHH`, `\uHHHH`, `\b` and `\f` used to be read as their letters (`'\x41'` was `x41`) and are now decoded; an unknown escape (`'\q'` was `q`), `\x00` and `\x80`–`\xff` are now syntax errors. Write `\\` for a literal backslash, or use a raw (`r'…'`) or dollar-quoted (`$$…$$`) string. See [EdgeQL → String and bytes literals](edgeql.md#:~:text=String%20and%20bytes%20literals).
+
+## Empty values return no row
+
+A statement whose value is empty — `select <json>{}`, `select <str>{}`, an unset global, an `<optional>` parameter given `null`, a `json_get` or `array_get` that finds nothing — answers `[]`, as in Gel. It answered one row holding `null`. Check for an empty array instead of a `null` value.
+
+## `<str>` of a datetime is ISO 8601
+
+`<str>` and `to_str()` of a `datetime` or `cal::local_datetime` give Gel’s ISO text (`2024-01-02T00:00:00+00:00`, `2024-01-02T03:04:05`) instead of PostgreSQL’s (`2024-01-02 00:00:00+00`). Anything that parses these strings sees the new form.
+
+## Casts to constrained scalars are checked
+
+`<PositiveInt>-1` now fails with the scalar’s error (`Minimum allowed value for PositiveInt is 0.`), element by element for `<array<PositiveInt>>`; it used to pass unchecked. A scalar’s `expression` constraint can now be used on a `multi` or array property, where it checks every element; it was a schema error. See [Schema → Custom Scalar Types](schema.md#:~:text=Custom%20Scalar%20Types).
+
 ## Expression and scalar-type constraints are enforced
 
 A type-level `constraint expression on (…)` and every constraint on a scalar type (`scalar type EVMAddress extending str { constraint regexp(…); }`) used to be accepted and create nothing. They are now PostgreSQL `CHECK`s, and property-level `expression on (__subject__ …)` compiles through the query compiler instead of being pasted into SQL as text.
@@ -31,7 +73,7 @@ A bare `insert … unless conflict` that wrote nothing — a conflict with no `e
 Regenerating a client can surface type errors that were runtime bugs before:
 
 - A single link selected with a sub-shape is declared `[User]` (`[User] | null` when optional), as it arrives: read `post.author[0].name`. Rust: `Vec<T>` / `Option<Vec<T>>`; Go: `[]T`.
-- `insert()` and `update()` return `<Type>MutationResult`, with single links as id strings and no multi links or computed fields. `update()` is typed `<Type>MutationResult | { updated: 0 }`. The Rust and Go clients can now decode these results at all.
+- `insert()` and `update()` return `<Type>MutationResult`, with single links as id strings and no multi links or computed fields. `update()` is typed `<Type>MutationResult | { updated: 0 }`. The Rust and Go clients can now decode these results at all. (The wire format of these results changed later — see [Mutations answer with the set of rows they wrote](#:~:text=Mutations%20answer%20with%20the%20set).)
 - In the typed builder, a link picked with `true` is its id (`string`, `string | null`, `string[] | null`); `LinkStub` is deprecated.
 
 See [Codegen](codegen.md#:~:text=MutationResult).
@@ -58,7 +100,7 @@ A call to a function the compiler does not know is rejected (`Unknown function '
 
 ## `with u := (mutation) select u { … }` projects its shape and always returns rows
 
-With a shape, the result is the projected shape, not every column of `RETURNING *`. With or without a shape, the response is always the row set (`[]` when nothing matched); before, the insert/update forms answered `rows[0] || { success: true }` while the delete form answered an array. The new `select (insert|update|delete …) { … }` form behaves identically. Bare `insert`/`update`/`delete` responses are unchanged, with one correction: a junction-backed multi-link `update` that matched nothing now answers `{ "updated": 0 }` instead of `{ "success": true }`, and a bare insert whose link value is a subselect answers with the row like any other bare insert. See [EdgeQL → Selecting over a mutation](edgeql.md#:~:text=Selecting%20over%20a%20mutation).
+With a shape, the result is the projected shape, not every column of `RETURNING *`. With or without a shape, the response is always the row set (`[]` when nothing matched); before, the insert/update forms answered `rows[0] || { success: true }` while the delete form answered an array. The new `select (insert|update|delete …) { … }` form behaves identically. Bare `insert`/`update`/`delete` responses were unchanged at the time (they are now the set of written rows — see [Mutations answer with the set of rows they wrote](#:~:text=Mutations%20answer%20with%20the%20set)), with one correction: a junction-backed multi-link `update` that matched nothing now answers `{ "updated": 0 }` instead of `{ "success": true }`, and a bare insert whose link value is a subselect answers with the row like any other bare insert. See [EdgeQL → Selecting over a mutation](edgeql.md#:~:text=Selecting%20over%20a%20mutation).
 
 ## Variables bind by name; an extra variable is a `400`
 

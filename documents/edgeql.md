@@ -45,7 +45,9 @@ Select all objects of a type:
 select User;
 ```
 
-This returns the set of all `User` objects. Without a shape, you get the default representation (typically just `id`).
+This returns the set of all `User` objects. Without a shape, each object comes back as its `id` and stored properties (Gel returns only `id`).
+
+A select of anything other than objects returns the values themselves, as in Gel: `select User.name` returns `["Ada", "Billie"]`, `select count(User)` returns `[2]`, `select (1, 'a')` returns `[[1, "a"]]`.
 
 ### Select with Shape
 
@@ -78,6 +80,17 @@ select User {
 This fetches each user along with their posts, including each post’s title and creation time. The result is a nested JSON structure.
 
 A multi link comes back as an array of rows. A single link selected with a sub-shape (`author: { name }`) also comes back as an array — one element, or `null` when an optional link is empty — so read `author[0].name`. Gel returns the object itself; the generated clients declare Disc’s shape (see [Codegen](codegen.md)).
+
+A link selected without a sub-shape (`author`, `posts`) is its targets’ ids: a string for a single link (`null` when unset), an array for a multi link (`[]` when empty).
+
+A sub-shape takes its own `filter`, `order by`, `offset` and `limit`, applied to the link’s objects — a stored link’s, a backlink’s, or a computed link’s result, as in Gel:
+
+```edgeql
+select User {
+  name,
+  posts: { title } order by .created_at desc limit 5
+};
+```
 
 ### Deeply Nested Shapes
 
@@ -112,6 +125,8 @@ select User {
 ```
 
 Computed fields use the `:=` assignment syntax. The `.property` notation refers to the current object being selected.
+
+A computed field of objects reads as a stored link does. A single one is `[{ … }]` with a sub-shape (`writer := .author { name }`), or `null` when empty, and its target’s id without one; a multi one is an array of objects with a sub-shape and of ids without. Whether it is single is inferred as in Gel: a path through single links, a `(select … limit 1)`, a select filtered on `.id` or on an `exclusive` property compared with one value, or an `assert_single(…)` is single.
 
 ### `FILTER`
 
@@ -150,6 +165,8 @@ select Post {
   title
 } filter .author.name = "Ada";
 ```
+
+Comparing objects compares their identity, as in Gel: `filter .author = (select User filter .email = <str>$e)`, `.tags in (select Tag filter …)`, `?=`, and a `with` name bound to a select (`with u := (select User filter .email = <str>$e) select Post filter .author = u`) all compare ids; a multi link compares each target’s id.
 
 #### Filtering on multi paths
 
@@ -232,6 +249,8 @@ Remove duplicate values from the result set:
 select distinct User.name;
 ```
 
+An `order by` on a `select distinct` orders the distinct elements, so it must refer to them: `select distinct User { name } order by .name`. A path from the type (`select distinct User.name order by User.name`) is not bound to them and is Gel’s error `possibly more than one element returned by an expression where only singletons are allowed`.
+
 ### Combining Clauses
 
 All clauses can be combined:
@@ -277,6 +296,8 @@ insert Post {
 Link values are set using a subquery that resolves to the target object.
 
 A single link holds one object, so, as in Gel, the value must be provably at most one: a select filtered on `.id` or on an `exclusive` property compared with one value, or one with `limit 1` (or an id cast, `<User><uuid>$id`). Any other select — `(select User filter .name = "Ada")`, or a `with` name bound to one — is a compile error (`possibly more than one element returned by an expression for a link 'author' declared as 'single'`). Wrap it in `assert_single(…)` to check at run time instead.
+
+The same rule holds for a single property’s value, and for a path from a `with` binding, in an `insert` or an `update`: after `with n := (select Counter)`, `number := n.last` is a compile error (`possibly more than one element returned by an expression for a property 'number' declared as 'single'`). It compiles when the binding is provably at most one object — a select, `update` or `delete` filtered on `.id` or on an `exclusive` property compared with one value, or with `limit 1` — or when the value is one by construction: `assert_single(n.last)`, an aggregate such as `max(n.last)`. A binding of an `insert` is always one object.
 
 ### Insert with Nested Insert
 
@@ -413,7 +434,7 @@ set { target := <str>$new };
 
 ### Selecting over a mutation
 
-A bare `update` answers with the first updated row or `{ "updated": n }`, and a bare `delete` with `{ "deleted": n }` (see [Server → `POST /query`](server.md#:~:text=Response%20shape%20by%20statement%20kind)). To see exactly which rows a mutation touched, wrap it in a `select` with a shape. The mutation runs as a data-modifying CTE and the shape is projected over its `RETURNING` rows:
+A bare `insert`, `update` or `delete` answers with the set of objects it wrote, each as its whole stored row, and `[]` when it wrote none (see [Server → `POST /query`](server.md#:~:text=Response%20shape%20by%20statement%20kind)). To choose the fields — and keep large columns out of the response — wrap it in a `select` with a shape. The mutation runs as a data-modifying CTE and the shape is projected over its `RETURNING` rows:
 
 ```edgeql
 select (
@@ -451,6 +472,8 @@ select (
   insert Bug { program := <Program><uuid>$p, number := n.last, title := <str>$t }
 ) { number };
 ```
+
+A shape applies to any parenthesized select, including one with its own `with`: `select (select User filter .email = <str>$e) { name }` and `select (with x := <str>$e select User filter .email = x) { name }` both mean `select User { name } filter .email = …`, and an outer shape replaces an inner one. A path from a `with`-bound select, update or delete used as a single value must be provably one (see [Insert with Links](#:~:text=A%20single%20link%20holds%20one%20object)).
 
 ### Update All Matching Objects
 
@@ -571,6 +594,20 @@ Inbound, a `<bytes>$p` variable must be a base64 string (ASCII whitespace is tol
 
 The request body is capped at 4 MiB by default (`DISC_MAX_REQUEST_BODY_BYTES` / `disc.toml` `max_request_body_bytes`); base64 inflates by 4/3, so that is roughly 3 MiB of raw bytes per request. Responses have no cap. The TypeScript SDK encodes `Uint8Array` (and Node `Buffer`) variables automatically and revives `bytes` fields on the way back — see [Client SDK → Bytes](client-sdk.md#:~:text=Bytes).
 
+### String and bytes literals
+
+String literals read escapes as Gel does, in EdgeQL and SDL alike: `\\`, `\'`, `\"`, `\b`, `\f`, `\n`, `\r`, `\t`, `\xHH` (a non-null ASCII character, `\x01`–`\x7f`), `\uHHHH`, `\UHHHHHHHH`, and a backslash before a line break, which drops the break and the whitespace after it. Any other escape is a syntax error, and so are `\x00` and `\x80`–`\xff`:
+
+```edgeql
+select 'caf\u00e9';   # "café"
+select 'a\qb';        # invalid string literal: invalid escape sequence '\q'
+select '\x80';        # invalid string literal: invalid escape sequence '\x80' (only non-null ascii allowed)
+```
+
+Raw strings (`r'…'`) and dollar-quoted strings (`$$…$$`, or `$tag$…$tag$` with a tag that doesn’t start with a digit) read no escapes: `$$a\nb$$` is the four characters `a\nb`.
+
+A bytes literal, `b'…'`, holds exact bytes: ASCII characters and the same escapes, except that `\xHH` is any byte and there is no `\u` or `\U`. A non-ASCII character in it is an error. `br'…'` (or `rb'…'`) reads no escapes. Like every `bytes` value it is base64 in JSON: `select b'\x00ab'` returns `["AGFi"]`.
+
 ### Supported Parameter Types
 
 Any scalar type can be used as a parameter type:
@@ -672,9 +709,13 @@ A cast whose operand is JSON reads the value out of the JSON rather than re-pars
 | `<json>`            | Plain cast.                                                                                                        |
 | `<bytes>`           | Compile error — JSON carries bytes as base64 text; use `std::base64_decode(<str>j['content'])`.                    |
 
-A missing key or a JSON `null` yields NULL / the empty set for every cast. The compiler decides syntactically what counts as a JSON operand: a `<json>` cast; a subscript with a string-literal key (`x['k']`) or any subscript on one of these; a call to a function returning json (`json_get`, `to_json`, `json_array_unpack`, `json_object_unpack`); a `with` binding, set-literal `for` element or `for` variable over `json_array_unpack(…)` bound to one of these; and a one-step path to a stored `json` property. Anything else (`a ?? b`, `if … else`, a subquery, `.link.meta`, a tuple element) keeps the plain SQL cast — put an explicit `<json>` in front of it first.
+A missing key or a JSON `null` yields the empty set for every cast. The compiler decides syntactically what counts as a JSON operand: a `<json>` cast; a subscript with a string-literal key (`x['k']`) or any subscript on one of these; a call to a function returning json (`json_get`, `to_json`, `json_array_unpack`, `json_object_unpack`); a `with` binding, set-literal `for` element or `for` variable over `json_array_unpack(…)` bound to one of these; and a one-step path to a stored `json` property. Anything else (`a ?? b`, `if … else`, a subquery, `.link.meta`, a tuple element) keeps the plain SQL cast — put an explicit `<json>` in front of it first.
 
 ### JSON Casts
+
+`<json>` of objects is one JSON object per object, as in Gel: `select <json>User` gives each user’s `{ "id" }`, and `select <json>(select User { name })` each user’s shape.
+
+A statement whose value is empty returns no row, as in Gel: `select <json>{}`, `select <str>{}`, an unset global, an `<optional str>$p` given `null`, and a `json_get` or `array_get` that finds nothing all return `[]`, not `[null]`. `??` gives an empty value a default: `select <str>{} ?? "x"` returns `["x"]`.
 
 ```edgeql
 select <json>{"key": "value"};
@@ -769,6 +810,8 @@ select User filter .email not in {"spam@example.com", "test@example.com"};
 select Shape filter Shape is Circle;
 select Shape filter Shape is not Rectangle;
 ```
+
+`is` also tests a scalar type, decided when the query compiles: `select 1 is int64` and `select 1 is anyint` are `true`, and `select User { b := .born is cal::local_date }` gives `true` for each user with a `born` (an empty operand stays empty). `is not` negates it, where Gel 7.1 answers `false` for every scalar `is not`.
 
 ### Pattern Matching
 
@@ -1092,53 +1135,53 @@ The `recursive` modifier tells Disc to generate a `WITH RECURSIVE` CTE in the co
 
 ## `GROUP BY`
 
-The `group` statement groups objects and computes aggregate values.
+The `group` statement partitions objects by one or more keys. Each group comes back as Gel’s free object: `key` holds each key’s value under its name, `grouping` the key names in `by` order, and `elements` the group’s objects.
 
 ### Basic Grouping
 
 ```edgeql
 group User
-using status := .status
-by status;
+by .status;
 ```
 
-### Grouping with Aggregates
-
-```edgeql
-group User {
-  status,
-  user_count := count(User)
-}
-using status := .status
-by status;
+```json
+[
+  { "key": { "status": "active" }, "grouping": ["status"], "elements": [{ "id": "…", "name": "Ada", "status": "active" }, …] },
+  { "key": { "status": "away" }, "grouping": ["status"], "elements": [{ "id": "…", "name": "Billie", "status": "away" }] }
+]
 ```
 
-### Multiple Group Keys
+Without a shape, each element is the object’s `id` and stored properties, as `select User` gives them. Groups, and the elements of a group, come in no set order.
+
+### Shaping the Elements
+
+A shape on the grouped type is the elements’ shape:
 
 ```edgeql
-group Order {
-  status,
-  year,
-  total_revenue := sum(.amount),
-  order_count := count(Order)
-}
-using
-  status := .status,
-  year := datetime_get(.created_at, "year")
-by status, year;
+group User { email, name }
+by .status;
 ```
 
-### `HAVING` (Filter on Groups)
+### `USING` and Multiple Group Keys
 
-Filter groups after aggregation:
+`using` binds a key to an expression; `by` lists the keys, bound names and properties alike:
 
 ```edgeql
-group User {
-  city,
-  user_count := count(User)
-}
-using city := .city
-by city
+group Sale { amount }
+using month := datetime_truncate(.created_at, "month")
+by month, .status;
+# key: { "month": "2026-03-01T00:00:00+00:00", "status": "paid" }, grouping: ["month", "status"]
+```
+
+Selecting over a group (`select (group User by .status) { key, n := count(.elements) }`) is not yet supported: count or total a group’s `elements` in the client.
+
+### `FILTER` on Groups
+
+A `filter` after `by` keeps the groups it holds for; in it, the grouped type stands for the group’s objects, so `count(User)` is the group’s size. This is a Disc extension (it compiles to SQL `HAVING`); Gel’s `group` has no `filter`.
+
+```edgeql
+group User { name }
+by .city
 filter count(User) > 10;
 ```
 
@@ -1443,13 +1486,15 @@ select [10, 20, 30, 40][-1];   # Returns 40 (last element)
 
 ### Array Slicing
 
-Extract sub-arrays with `[start:end]` syntax:
+Extract sub-arrays with `[start:end]` syntax; a negative bound counts from the end:
 
 ```edgeql
-select [10, 20, 30, 40, 50][1:3];   # Returns [20, 30]
-select [10, 20, 30, 40, 50][:2];    # Returns [10, 20]
-select [10, 20, 30, 40, 50][3:];    # Returns [40, 50]
+select [(1, "a"), (2, "b"), (3, "c")][1:];    # Returns [(2, "b"), (3, "c")]
+select [(1, "a"), (2, "b"), (3, "c")][-2:];   # Returns [(2, "b"), (3, "c")]
+select "hello"[1:3];                           # Returns "el"
 ```
+
+Slicing works on strings and on arrays of tuples. Slicing any other array — `[10, 20, 30, 40, 50][1:3]`, an `array<str>` property — is not yet supported: it fails in PostgreSQL (`function pg_catalog.substring(integer[], integer, integer) does not exist`).
 
 ### Array Functions
 
@@ -1477,6 +1522,8 @@ select (1, "hello", true);
 select (3.14, 42);
 ```
 
+A tuple or array built from paths of one type is one value per object, as in Gel: `select (User.name, User.age)` gives one tuple per user, and none for a user whose `age` is empty.
+
 ### Tuple Element Access
 
 Access tuple elements by zero-based index:
@@ -1493,6 +1540,8 @@ select (10, "hello", true).2;    # Returns true
 select (name := "Ada", age := 30, active := true);
 ```
 
+A tuple cast to a named tuple type takes the type’s names: `select <tuple<a: int64, b: str>>(1, "x")` returns `[{ "a": 1, "b": "x" }]`.
+
 ### Named Tuple Field Access
 
 Access fields by name:
@@ -1501,6 +1550,17 @@ Access fields by name:
 select (name := "Ada", age := 30).name;   # Returns "Ada"
 select (name := "Ada", age := 30).age;    # Returns 30
 ```
+
+### Arrays of Tuples
+
+An `array<tuple<…>>` has one form everywhere — a literal, a parameter, an `array_agg` of tuples, a stored property: a JSON array of tuples, stored as `jsonb`. So `++`, `array_agg`, `array_unpack`, `len`, indexing (negative too), slicing, comparisons (`=`, `<`, `in`), `order by`, `distinct` and `group` all work on it, as in Gel:
+
+```edgeql
+select [(1, "a")] ++ <array<tuple<int64, str>>>$more;
+select Route { first := .stops[0], rest := .stops[1:], n := len(.stops) };
+```
+
+A parameter written to an array-of-tuples property is stored with each tuple cast to its declared types, so it compares equal to a literal of the same value.
 
 ### Arrays and Tuples in Shapes
 
@@ -1831,9 +1891,10 @@ select to_json('{"key": "value"}');
 ### JSON Functions
 
 ```edgeql
-select json_typeof(<json>"42");          # "number"
-select json_get(<json>'{"a":1}', "a");   # 1
-select json_array_unpack(<json>"[1,2,3]");
+select json_typeof(to_json("42"));          # "number"
+select json_get(to_json('{"a":1}'), "a");   # 1
+select json_get(to_json('{"a":[{"b":5}]}'), "a", "0", "b");   # 5
+select json_array_unpack(to_json("[1,2,3]"));
 ```
 
 ### Regex Functions
@@ -1985,25 +2046,13 @@ select tree {
 ### Analytics Query
 
 ```edgeql
-with
-  module default,
-  start := <datetime>$start_date,
-  end := <datetime>$end_date
-group Order {
-  avg_order := avg(.amount),
-  month := datetime_truncate(.created_at, "month"),
-  order_count := count(Order),
-  top_product := (
-    select .items.product.name
-    order by .items.quantity desc
-    limit 1
-  ),
-  total_revenue := sum(.amount)
-}
+group Sale { amount, created_at }
 using month := datetime_truncate(.created_at, "month")
 by month
-filter .created_at >= start and .created_at < end;
+filter count(Sale) >= 10;
 ```
+
+Each group’s `key.month` names the month and its `elements` carry the amounts to total; months with fewer than ten sales are left out.
 
 ---
 

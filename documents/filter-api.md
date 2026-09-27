@@ -113,7 +113,7 @@ The emitted `any(…)` and `?? false` mean the same in Gel whichever path scopin
 
 ## Shape narrowing
 
-By default `filter()` returns every scalar field of the type (the EdgeQL `{ * }` splat). Pass `select` to narrow:
+By default `filter()` returns every scalar field of the type (the EdgeQL `{ * }` splat), typed as the generated `<Type>Row` (`id` and the stored properties, no links). Pass `select` to narrow:
 
 ```ts
 await client.merchant.filter({
@@ -201,7 +201,7 @@ await client.channel.filter({
 // → ... { *, videos: { * } order by .created desc }
 ```
 
-The ordering applies to that link only (it compiles to an `ORDER BY` inside the link’s `jsonb_agg`) and nests to any depth. An `order_by` placed at the **top level** of `select` is ignored — top-level result ordering uses the sibling `order_by` (see [Ordering, limit, offset](#:~:text=Ordering%2C%20limit%2C%20offset,-Reserved%20keys%20order_by)). Capping a linked set (`limit`/`offset` on a sub-shape) is not yet supported; see [Not yet supported](#:~:text=query%20builder.-,Not%20yet%20supported,-A%20few%20patterns).
+The ordering applies to that link only (it compiles to an `ORDER BY` inside the link’s `jsonb_agg`) and nests to any depth. An `order_by` placed at the **top level** of `select` is ignored — top-level result ordering uses the sibling `order_by` (see [Ordering, limit, offset](#:~:text=Ordering%2C%20limit%2C%20offset,-Reserved%20keys%20order_by)). Capping a linked set (`limit`/`offset` on a sub-shape) has no filter-object form yet; see [Not yet supported](#:~:text=query%20builder.-,Not%20yet%20supported,-A%20few%20patterns).
 
 ---
 
@@ -430,6 +430,7 @@ When the object form doesn’t fit (deeply custom EdgeQL, schema features the fi
 
 A few patterns have no filter-object form yet and need raw EdgeQL:
 
+- **`limit` and `offset` on a linked set.** A nested `select` takes `order_by` only; raw EdgeQL caps a sub-shape: `select Channel { videos: { * } order by .created desc limit 5 }`.
 - **Backlinks the source type doesn’t declare as a field.** A filter object has no key for them; raw EdgeQL takes Gel’s syntax (`filter .<author[is Post].title = <str>$t`).
 
 These are tracked alongside the closed gaps in the test suite at `sdk/filter-compiler-edgeql.test.ts` and `compiler/compiler.test.ts`.

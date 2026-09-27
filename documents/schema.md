@@ -162,7 +162,7 @@ module default {
 };
 ```
 
-A scalar type’s constraints are enforced as PostgreSQL `CHECK`s on every column of that type: in subtypes’ tables, on each element of a `multi` or array property, on link properties, and through scalars that extend it (constraints are inherited). A violation is Gel’s `invalid <Scalar>` error, or the constraint’s `errmessage`. An `expression on (__subject__ …)` scalar constraint can’t be used on a `multi` or array property yet (a schema error). Casts such as `<PositiveInt>-1` are not checked.
+A scalar type’s constraints are enforced as PostgreSQL `CHECK`s on every column of that type: in subtypes’ tables, on each element of a `multi` or array property, on link properties, and through scalars that extend it (constraints are inherited). A violation is Gel’s `invalid <Scalar>` error, or the constraint’s `errmessage`. A scalar’s `expression on (__subject__ …)` constraint checks every element of a `multi` or array property. A cast to a constrained scalar checks its constraints too (each element of an array cast), as in Gel: `select <PositiveInt>-1` fails with `Minimum allowed value for PositiveInt is 0.`
 
 A scalar belongs to its module, so two modules may declare the same name (`default::Count extending int64`, `ledger::Count extending str`). A bare scalar name resolves in the module that uses it first, then in `default` — for the column type, the generated clients’ types and casts, and globals (a global of a user scalar or enum has its base type, so `global limit > 9` compares numbers). Columns an earlier version created with another module’s scalar type are converted on the next `disc migrate`, which fails naming the column and value if a stored value doesn’t convert.
 
@@ -339,7 +339,24 @@ counts := ( videos := count(.<channel[is Video]), posts := count(.<channel[is Po
 
 Computed properties are read-only outputs: they’re excluded from the `{ * }` splat (select them explicitly) and from insert/update. Fields of a named-tuple computed are filterable — see [Filter API → Computed field filters](filter-api.md#:~:text=Computed%20field%20filters).
 
-A computed that yields objects — a path through a link (`auth := .author`), a backlink (`.<post[is Comment]`) or a `(select …)` of a type — is a computed link: select it with a sub-shape (`auth: { name }`) exactly like a stored link, and a path-based one also works in `filter` and `order by` (`filter .auth.name = "Ada"`). A `(select …)`-based computed link can be selected but not yet followed in a path.
+A computed that yields objects — a path through a link (`auth := .author`), a backlink (`.<post[is Comment]`) or a `(select …)` of a type — is a computed link: select it with a sub-shape (`auth: { name }`) exactly like a stored link, and follow it in `filter`, `order by`, `exists`, `count`, `in` and paths (`filter .auth.name = "Ada"`, `select Post.first_comment { body }`). A sub-shape’s own `filter`, `order by`, `offset` and `limit` apply to the computed’s result, as in Gel:
+
+```sdl
+type Post {
+  required title: str;
+  single link first_comment := (select .<post[is Comment] order by .created limit 1);
+  multi link recent := (select .<post[is Comment] order by .created desc limit 2);
+  bodies := .<post[is Comment].body;
+};
+```
+
+```edgeql
+select Post { title, recent: { body } order by .created limit 1 } filter exists .first_comment;
+```
+
+A computed over a backlink’s property (`bodies` above) is a multi computed property: an array of its values in a shape, and a set in `filter "…" in .bodies` or `count(.bodies)`.
+
+A computed may be declared in any of Gel’s forms, `[required] [single | multi] [link | property] name := expr;`. Its cardinality is inferred as in Gel: single for a path through single links or a `(select … limit 1)`, multi through a multi link or a backlink; required when the expression is never empty (`.author` of a `required` link). `multi` widens it. `required` on an expression that may be empty is Gel’s error `possibly an empty set returned by an expression for the computed link '…' of object type '…' explicitly declared as 'required'`, and a shape inside a schema computed (`recent := .<post[is Comment] { body }`) is Gel’s error `including a shape on schema-defined computed links is not yet supported`.
 
 ### Property Qualifiers Summary
 
@@ -1563,6 +1580,8 @@ module default {
   };
 };
 ```
+
+An `array<tuple<…>>` property is stored as one `jsonb` array of tuples — the same form a literal, a parameter or an `array_agg` of tuples has — so indexing, slicing, `len`, `++`, comparisons, `order by`, `distinct` and `group` work on it (see [EdgeQL → Arrays of Tuples](edgeql.md#:~:text=Arrays%20of%20Tuples)). A tuple or array-of-tuples parameter is stored with each element cast to its declared type, so it compares equal to a literal of the same value.
 
 ### Named Tuples
 

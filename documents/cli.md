@@ -1133,6 +1133,8 @@ When no `disc.toml` is found, commands fall back to the current directory name a
 
 ## Command Quick Reference
 
+`disc schema export` writes computed links and properties as `[required] [multi] name := expr;`, so a declared `required` or `multi` survives the round trip. Triggers, rewrites, access policies, indexes, globals, functions and aliases are written as SDL comments noting the gap.
+
 | Command                                | Description                                       |
 | :------------------------------------- | :------------------------------------------------ |
 | `disc init [name]`                     | Initialize a new project                          |

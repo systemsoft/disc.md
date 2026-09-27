@@ -109,15 +109,15 @@ Variables are bound by name, so their key order is irrelevant; a missing or extr
 // Select all users
 const users = await client.query<User[]>("select User { email, name }");
 
-// Select with variables
-const user = await client.query<User>(
+// Select with variables: every query answers with a set
+const [user] = await client.query<User[]>(
   `select User { email, name }
    filter .email = <str>$email`,
   { email: "ada@example.com" }
 );
 
-// Insert
-const newUser = await client.query<User>(
+// Insert: the set of rows it wrote (one)
+const [newUser] = await client.query<User[]>(
   `insert User {
     email := <str>$email,
     name := <str>$name
@@ -139,6 +139,8 @@ await client.query(
   { email: "billie@example.com" }
 );
 ```
+
+Every query answers with a set, as an array: a select with its objects or values (`select count(User)` is `[2]`, so read `rows[0]`, not `Object.values(row)[0]`), and an `insert`, `update` or `delete` with the rows it wrote, `[]` when none (see [Server → `POST /query`](server.md#:~:text=Response%20shape%20by%20statement%20kind)).
 
 ### Bytes
 
@@ -453,7 +455,7 @@ Transactions execute multiple queries atomically. The SDK uses a callback patter
 
 ```typescript
 const result = await client.transaction(async tx => {
-  const user = await tx.query<User>(
+  const [user] = await tx.query<User[]>(
     `insert User { email := <str>$email, name := <str>$name }`,
     { email: "cher@example.com", name: "Cher" }
   );
@@ -881,7 +883,7 @@ const users = await qb
 //    ^? { email: string; name: string | null } | null
 ```
 
-`select` narrows the awaited row type to the picked shape (a link picked with `true` is its target’s id: `string`, `string | null` when optional, `string[] | null` for a multi link; a link picked with a sub-shape is `[{ … }]`, and a row with no `select` has no links), and results are converted to the markers’ types like a generated client’s: `int64`/`bigint` to `bigint`, `datetime` to `Date`, `bytes` to `Uint8Array`, on linked objects too. `filter` predicates receive a typed reference where each property accepts only the right comparison operand: `u.email.eq(...)` requires a `string`, `u.score.gt(...)` requires a `bigint` (`t.int64()` is a `bigint`, as in the generated client, so write `u.score.gt(10n)`; each filter value is cast as its field declares, `<int64>$p0`). Identifier safety is enforced at construction so schema typos fail before reaching the server.
+`select` narrows the awaited row type to the picked shape (a link picked with `true` is its target’s id: `string`, `string | null` when optional, `string[]` for a multi link, `[]` when empty; a link picked with a sub-shape is `[{ … }]`, and a row with no `select` has no links), and results are converted to the markers’ types like a generated client’s: `int64`/`bigint` to `bigint`, `datetime` to `Date`, `bytes` to `Uint8Array`, on linked objects too. `filter` predicates receive a typed reference where each property accepts only the right comparison operand: `u.email.eq(...)` requires a `string`, `u.score.gt(...)` requires a `bigint` (`t.int64()` is a `bigint`, as in the generated client, so write `u.score.gt(10n)`; each filter value is cast as its field declares, `<int64>$p0`). Identifier safety is enforced at construction so schema typos fail before reaching the server.
 
 ### Composability with `client.query`
 
@@ -905,7 +907,7 @@ const users = await client.query<User[]>("select User { email, name }");
 
 // Type-safe within transactions
 const result = await client.transaction(async tx => {
-  const user = await tx.query<User>(
+  const [user] = await tx.query<User[]>(
     `insert User { email := <str>$email, name := <str>$name }`,
     { email: "daena@example.com", name: "Daena" }
   );

@@ -304,24 +304,30 @@ export class UserQueryBuilder {
 
   constructor(private client: DiscClient) {}
 
-  /** Select all User objects */
-  async select(shape?: string): Promise<Types.User[]> {
+  /** Select all User objects: without a shape, `id` and the stored properties */
+  select(): Promise<Types.UserRow[]>;
+  select(shape: string): Promise<Types.User[]>;
+  async select(shape?: string): Promise<Types.UserRow[] | Types.User[]> {
     const query = shape ? `select User ${shape}` : `select User { * }`;
-    return await this.client.query<Types.User[]>(query);
+    return await this.client.query<Types.UserRow[] | Types.User[]>(query);
   }
 
-  /** Select User by ID */
-  async selectById(id: string, shape?: string): Promise<Types.User | null> {
+  /** Select User by ID: without a shape, `id` and the stored properties */
+  selectById(id: string): Promise<Types.UserRow | null>;
+  selectById(id: string, shape: string): Promise<Types.User | null>;
+  async selectById(id: string, shape?: string): Promise<Types.UserRow | Types.User | null> {
     const query = shape ?
       `select User ${shape} filter .id = <uuid>$id` :
       `select User { * } filter .id = <uuid>$id`;
-    const results = await this.client.query<Types.User[]>(query, { id });
+    const results = await this.client.query<(Types.UserRow | Types.User)[]>(query, { id });
 
     return results[0] || null;
   }
 
-  /** Filter User objects */
-  async filter(filter: FilterArg<Types.UserFilter>): Promise<Types.User[]> {
+  /** Filter User objects: without a `select`, `id` and the stored properties */
+  filter(filter: FilterArg<Types.UserFilter> & { select?: undefined }): Promise<Types.UserRow[]>;
+  filter(filter: FilterArg<Types.UserFilter>): Promise<Types.User[]>;
+  async filter(filter: FilterArg<Types.UserFilter>): Promise<Types.UserRow[] | Types.User[]> {
     const compiled = compileFilter("User", filter, UserQueryBuilder._typeInfo);
     const shape = compiled.selectShape ?? "{ * }";
     const parts: string[] = [`select User ${shape}`];
@@ -338,7 +344,7 @@ export class UserQueryBuilder {
     if (compiled.offset !== null)
       parts.push(`offset ${compiled.offset}`);
 
-    return await this.client.query<Types.User[]>(
+    return await this.client.query<Types.UserRow[] | Types.User[]>(
       parts.join(" "),
       compiled.variables
     );
@@ -353,8 +359,10 @@ export class UserQueryBuilder {
       )
       .join(", ");
     const query = `insert User { ${assignments} }`;
+    // The server answers with the set of rows the insert wrote: one.
+    const [row] = await this.client.query<Types.UserMutationResult[]>(query, data);
 
-    return await this.client.query<Types.User>(query, data);
+    return row;
   }
 
   /** Update User by ID */
@@ -366,14 +374,18 @@ export class UserQueryBuilder {
       )
       .join(", ");
     const query = `update User filter .id = <uuid>$id set { ${assignments} }`;
+    // One row, or none for an id that doesn’t exist.
+    const [row] = await this.client.query<Types.UserMutationResult[]>(query, { id, ...data });
 
-    return await this.client.query<Types.User>(query, { id, ...data });
+    return row ?? { updated: 0 };
   }
 
   /** Delete User by ID. Resolves to the affected-row count, `{ deleted: 0 | 1 }`. */
   async delete(id: string): Promise<{ deleted: number }> {
     const query = `delete User filter .id = <uuid>$id`;
-    return await this.client.query<{ deleted: number }>(query, { id });
+    const rows = await this.client.query<unknown[]>(query, { id });
+
+    return { deleted: rows.length };
   }
 
   /** Count User objects */
@@ -384,8 +396,9 @@ export class UserQueryBuilder {
     const query = condition ?
       `select count(User filter ${condition})` :
       `select count(User)`;
+    const [count] = await this.client.query<[number]>(query, variables);
 
-    return await this.client.query<number>(query, variables);
+    return count;
   }
 }
 ```
@@ -546,7 +559,9 @@ await client.user.update(newUser.id, { name: "Ada B." });
 const { deleted } = await client.user.delete(newUser.id); // { deleted: 0 | 1 }
 ```
 
-`insert()` and `update()` resolve to a `<Type>MutationResult`: the stored row as written — `id`, every stored property, and each single link as its target’s id (`string`, or `null` when an optional one is unset). Multi links, link properties and computed fields are not returned. `update()` of an id that doesn’t exist resolves to `{ updated: 0 }`, so check for it before reading the row. The Rust and Go clients return the same `<Type>MutationResult` struct, and `delete` a `DeleteResult`.
+`insert()` and `update()` resolve to a `<Type>MutationResult`: the stored row as written — `id`, every stored property, and each single link as its target’s id (`string`, or `null` when an optional one is unset). Multi links, link properties and computed fields are not returned. `update()` of an id that doesn’t exist resolves to `{ updated: 0 }`, so check for it before reading the row. The Rust and Go clients return the same `<Type>MutationResult` struct — `update` as `Option<…>` in Rust and a pointer in Go, `None`/`nil` for an id that doesn’t exist — and `delete` a `DeleteResult`. (Over the wire every mutation answers with the set of rows it wrote; the builders unwrap it — see [Server → `POST /query`](server.md#:~:text=Response%20shape%20by%20statement%20kind).)
+
+Without a shape, `select()`, `selectById(id)` and `filter()` without a `select` key resolve to `<Type>Row`: `id` and every stored property, as `{ * }` returns them — no links or computed fields. With a shape they resolve to the full `<Type>` interface.
 
 `delete()` resolves to the affected-row count, not the deleted object; to read the row back, use raw EdgeQL:
 

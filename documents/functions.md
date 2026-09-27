@@ -908,9 +908,14 @@ to_str(val: any) -> str
 ```edgeql
 select to_str(42);
 # => '42'
+
+select to_str(<datetime>'2024-01-02T00:00:00Z');
+# => '2024-01-02T00:00:00+00:00'
 ```
 
 **SQL equivalent:** `CAST(42 AS text)`
+
+A `datetime` or `cal::local_datetime` becomes its ISO 8601 text, as in Gel — for `<str>` casts too. The form with a format argument, `to_str(dt, fmt)`, is not yet supported.
 
 ---
 
@@ -1122,10 +1127,10 @@ select json_typeof(<json>'hello');
 
 ### `json_get`
 
-Retrieves a value from a JSON object by key.
+Retrieves a value from JSON by a path of object keys and array indexes, or `default` when the path finds nothing.
 
 ```
-json_get(val: json, key: str) -> json
+json_get(val: json, variadic path: str, named only default: optional json = {}) -> optional json
 ```
 
 **Example:**
@@ -1133,9 +1138,17 @@ json_get(val: json, key: str) -> json
 ```edgeql
 select json_get(to_json('{"name": "Ada", "age": 30}'), 'name');
 # => '"Ada"'
+
+select json_get(to_json('{"a": [{"b": 5}]}'), 'a', '0', 'b');
+# => '5'
+
+select json_get(to_json('{"a": 1}'), 'x', default := <json>'none');
+# => '"none"'
 ```
 
-**SQL equivalent:** `val -> 'name'` (the `->` operator)
+An array index may be negative (`'-1'` is the last element). A path that finds nothing is the empty set — no row — unless a `default` is given; a JSON `null` found at the path is returned as `null`.
+
+**SQL equivalent:** `jsonb_extract_path(val, 'a', '0', 'b')`, wrapped in `COALESCE(…, default)` when there is a default
 
 ---
 
@@ -1245,7 +1258,7 @@ select array_get([10, 20, 30], 2);
 
 **SQL equivalent:** `(ARRAY[10,20,30])[0 + 1]`
 
-Note: PostgreSQL arrays are 1-indexed. Disc automatically adjusts by adding 1 to the index.
+Note: PostgreSQL arrays are 1-indexed. Disc automatically adjusts by adding 1 to the index. An index past the end is the empty set (no row), as in Gel.
 
 ---
 
@@ -1561,6 +1574,30 @@ select cal::time_get(<cal::local_time>'10:30:00', 'minutes');
 select cal::date_get(<cal::local_date>'2026-09-27', 'doy');
 # => 270
 ```
+
+---
+
+### `cal::duration_normalize_days` and `cal::duration_normalize_hours`
+
+`cal::duration_normalize_days` turns each whole 30 days into a month; `cal::duration_normalize_hours` turns each whole 24 hours into a day. Each returns its argument’s type.
+
+```
+cal::duration_normalize_days(val: cal::relative_duration) -> cal::relative_duration
+cal::duration_normalize_days(val: cal::date_duration) -> cal::date_duration
+cal::duration_normalize_hours(val: cal::relative_duration) -> cal::relative_duration
+```
+
+**Example:**
+
+```edgeql
+select cal::duration_normalize_days(<cal::date_duration>'45 days');
+# => 'P1M15D'
+
+select cal::duration_normalize_hours(<cal::relative_duration>'49 hours 3 minutes');
+# => 'P2DT1H3M'
+```
+
+**SQL equivalent:** `justify_days(...)` / `justify_hours(...)`
 
 ---
 
@@ -2280,7 +2317,7 @@ order by fts::rank('database migration') desc;
 | Assertion        | `assert_exists`, `assert_single`                                                                                                                                                                                     |
 | UUID             | `disc_uuidv7`, `uuid_generate_v4`, `uuid_generate_v1mc`                                                                                                                                                              |
 | Datetime         | `datetime_current`, `datetime_of_transaction`, `datetime_of_statement`, `datetime_get`, `duration_get`, `datetime_truncate`, `to_datetime`, `to_duration`                                                                            |
-| Calendar         | `cal_to_local_date`, `cal_to_local_time`, `cal_to_local_datetime`, `cal::time_get`, `cal::date_get`                                                                                                                                                    |
+| Calendar         | `cal_to_local_date`, `cal_to_local_time`, `cal_to_local_datetime`, `cal::time_get`, `cal::date_get`, `cal::duration_normalize_days`, `cal::duration_normalize_hours`                                                                                                                                                    |
 | Window           | `row_number`, `rank`, `dense_rank`, `ntile`, `lag`, `lead`, `first_value`, `last_value`                                                                                                                              |
 | Bytes            | `bytes_get_bit`, `bytes_to_str`, `std::base64_encode`, `std::base64_decode`                                                                                                                                                                                   |
 | Range            | `range`, `range_get_lower`, `range_get_upper`, `range_is_empty`, `range_unpack`, `range_is_inclusive_lower`, `range_is_inclusive_upper`, `multirange`, `overlaps`, `contains` (overload)                             |
