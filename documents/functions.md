@@ -4,11 +4,56 @@ Disc provides a comprehensive standard library of built-in functions available i
 
 This reference documents every function registered in the Disc compiler. Functions are organized by category.
 
-Only registered functions compile. A call to a name the compiler does not know — a built-in (with or without `std::`), an SDL `function` declaration (`f` / `default::f`, or `mod::f` in another module), or an extension or custom function — is a compile error naming it. PostgreSQL-native names such as `lower()`, `coalesce()` or `now()` are not passed through; use `str_lower()`, `??` and `datetime_current()`.
+Only registered functions compile. A call to a name the compiler does not know — a built-in (with or without `std::`), an SDL `function` declaration (`f` / `default::f`, or `mod::f` in another module), or an extension or custom function — is Gel’s `InvalidReferenceError` naming it: `function 'default::nope' does not exist` (a bare name is named in the module it was looked up in). PostgreSQL-native names such as `lower()`, `coalesce()` or `now()` are not passed through; use `str_lower()`, `??` and `datetime_current()`.
 
-An SDL `function`’s body (`using (…)`) is parsed as a full EdgeQL expression, and its signature is known: a call to it compiles, and [codegen](codegen.md) types a computed that calls it by its declared return type. Disc does not yet create the function in PostgreSQL, though, so a query that calls one fails when it runs.
+An SDL `function` runs wherever an expression goes: a query, a shape, a `filter`, an `order by`, a schema computed or a property’s default. Disc creates nothing in PostgreSQL for it — each call is replaced, as the query compiles, by the function’s body with its parameters replaced by the arguments — so a migration that changes only functions runs no DDL, and the next query calls the new body. See [below](#:~:text=SDL%20Functions).
 
 **See also:** [EdgeQL](edgeql.md) | [Schema](schema.md) | [CLI](cli.md)
+
+---
+
+## SDL Functions
+
+A `function` declared in the schema is called like a built-in:
+
+```sdl
+module default {
+  type Post {
+    required title: str;
+    score: int64;
+  };
+
+  function full_name(first: str, last: str) -> str using (first ++ ' ' ++ last);
+  function greet(name: optional str = 'world') -> str using ('hi ' ++ (name ?? 'x'));
+  function joined(a: str, named only sep: str = ',') -> str using (a ++ sep);
+  function dbl(x: int64) -> int64 using (x * 2);
+  function top_posts(n: int64) -> set of Post using (select Post order by .score desc limit n);
+  function new_post(t: str) -> Post {
+    volatility := 'Modifying';
+    using (insert Post { title := t });
+  };
+};
+```
+
+```edgeql
+select full_name('Ada', 'Lovelace');  # "Ada Lovelace"
+select greet();                       # "hi world"
+select joined('a', sep := '-');       # "a-"
+select dbl({1, 2, 3});                # {2, 4, 6}
+select top_posts(3) { title };
+```
+
+Arguments fill the parameters by position, except those declared `named only`, which are passed by name (`sep := '-'`); a parameter with a default may be left out. An `optional` parameter takes the empty set when its argument is empty (`greet(<str>{})` is `"hi x"`). Any other parameter makes the call element-wise, as in Gel: it runs once for each element of the argument (`dbl({1, 2, 3})`), and an empty argument makes the result empty. `set of` parameters are rejected, as Gel rejects them: `SET OF parameters in user-defined EdgeQL functions are not supported`.
+
+The overload is chosen by the argument types, with Gel’s implicit casts (an `int16` argument takes an `int64` parameter). A call no overload takes is Gel’s error naming the argument types, with the declared signatures as its hint: `function "full_name(arg0: std::str)" does not exist`, hint `Did you want "default::full_name(first: std::str, last: std::str)"?`. A function of another module is called by its module (`util::twice(2)`).
+
+A function returning objects is a select of them: it takes a shape (`select top_posts(3) { title }`), and a schema computed calling it is a computed link. A function whose body writes (`new_post` above) makes the query calling it a write, which read-only mode refuses.
+
+A function may call others. One that calls itself, directly or through others, is a schema error (`function 'default::rec(x: int64)' is defined recursively`, `definition dependency cycle between function … and function …`), and so is a second function with the same signature (`a function with the same signature is already defined`).
+
+The block form, `{ volatility := '…'; using (…); }`, may also hold annotations. The volatility is recorded but not otherwise enforced, and the body is not checked against the declared return type. [Codegen](codegen.md) types a computed calling a function by its declared return type, but generates no client method for the function itself: call it in a query.
+
+SDL functions are EdgeQL, inlined; the [custom functions extension](extensions.md#:~:text=The%20custom%20functions%20extension) is a separate mechanism, for SQL and PL/pgSQL functions created in PostgreSQL.
 
 ---
 

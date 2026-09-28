@@ -677,6 +677,8 @@ select User {
 
 A cast from a float to an integer type or `bigint` rounds half to even (`<int64>2.5` is `2`, `<int64>3.5` is `4`); a cast from a `decimal` rounds half away from zero (`<bigint>2.5n` is `3`) — both as in Gel.
 
+A `str` is read as Gel reads it. `<bool>` takes only `true` or `false`, in any case (`<bool>'t'` is `invalid input syntax for type std::bool: 't'`); an enum only a member’s name (`invalid input value for enum 'default::Color': "Purple"`); `<datetime>`, `<cal::local_datetime>`, `<cal::local_date>` and `<cal::local_time>` only ISO 8601 (see [Schema → Date and Time Types](schema.md#:~:text=takes%20only%20ISO%208601)). A `str` can’t be cast to `bytes`: `<bytes>'x'` is the compile error `cannot cast 'std::str' to 'std::bytes'`.
+
 ### Calendar Type Casts
 
 ```edgeql
@@ -1223,7 +1225,7 @@ limit 5;
 
 `elements: { name }` gives the elements a shape; without one they take the group’s (`group User { name } by …`). The sub-shape takes its own `filter`, `order by`, `offset` and `limit`, which pick and order each group’s elements: `elements: { name } order by .name desc limit 1`. A computed of the elements’ values is each group’s list of them — `names := .elements.name`, `e := .elements.name ++ '!'` — and `.elements { name }` or `(select .elements { name } filter .score > 3)` is a select of the group’s objects. A bare `key`, without a sub-shape, is Gel’s empty free object `{}`; name the keys (`key: { status }`) to read them.
 
-`.elements.x` in the select’s own `filter` or `order by` is not supported yet; filter and order on a computed that aggregates the elements (`n := count(.elements)`).
+The select’s own `filter` and `order by` read the elements as a set, as in Gel: a group passes `filter 'ann' in .elements.name`, `filter exists .elements.score` or `filter .elements.score > 4` when any of its elements does, and `order by min(.elements.name)` orders by an aggregate of them. `order by .elements.name` is Gel’s error `possibly more than one element returned by an expression where only singletons are allowed`.
 
 ### `FILTER` on Groups
 
@@ -1634,7 +1636,7 @@ A parameter written to an array-of-tuples property is stored with each tuple cas
 
 ### Arrays of Arrays
 
-An array may hold arrays, of different lengths too, as in Gel: `[[1, 2], [3]]` indexes (`[[1, 2], [3]][0][1]` is `2`), slices, concatenates, unpacks, aggregates (`array_agg({[1, 2], [3]})`), compares and casts to and from `json` like any array, and binds as a parameter (`<array<array<int64>>>$grid`). A schema type can’t be one: a property, tuple element or scalar type of `array<array<…>>` is rejected with `nested arrays are not supported`, as Gel rejects it. An array of tuples of arrays (`array<tuple<array<int64>>>`) is allowed.
+An array may hold arrays, of different lengths too, as in Gel: `[[1, 2], [3]]` indexes (`[[1, 2], [3]][0][1]` is `2`), slices, concatenates, unpacks, aggregates (`array_agg({[1, 2], [3]})`), compares and casts to and from `json` like any array, and binds as a parameter (`<array<array<int64>>>$grid`) over HTTP and from gel-python; gel-js refuses one before sending it (`only arrays of scalars or tuples are supported`), as it does against Gel. A schema type can’t be one: a property, tuple element or scalar type of `array<array<…>>` is rejected with `nested arrays are not supported`, as Gel rejects it. An array of tuples of arrays (`array<tuple<array<int64>>>`) is allowed.
 
 ### Arrays and Tuples in Shapes
 
@@ -1893,7 +1895,9 @@ Globals are stored as PostgreSQL session settings using the naming convention `d
 
 EdgeQL includes a standard library of built-in functions. This section provides a brief overview. See the [Functions Reference](functions.md) for complete documentation.
 
-A call to a function the compiler does not know is a compile error naming it (`Unknown function 'enc::base64_decode'. It is not a built-in function, and the schema does not declare it …`). Known functions are the built-ins (with or without `std::`), `function` declarations in your SDL (`f` or `default::f`; `mod::f` for other modules), and extension and custom functions. PostgreSQL-native names are **not** passed through: `lower()`, `coalesce()` and `now()` are rejected — write `str_lower()`, `??` and `datetime_current()`.
+A call to a function the compiler does not know is Gel’s `InvalidReferenceError` naming it (`function 'enc::base64_decode' does not exist`; a bare name is named in its module, `function 'default::nope' does not exist`). Known functions are the built-ins (with or without `std::`), `function` declarations in your SDL (`f` or `default::f`; `mod::f` for other modules), and extension and custom functions. PostgreSQL-native names are **not** passed through: `lower()`, `coalesce()` and `now()` are rejected — write `str_lower()`, `??` and `datetime_current()`.
+
+A `function` declared in the schema runs as in Gel, its body inlined where it is called: see [Functions → SDL Functions](functions.md#:~:text=SDL%20Functions).
 
 ### Aggregate Functions
 

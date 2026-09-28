@@ -813,20 +813,18 @@ The binary protocol shares the same schema as the HTTP handler. Queries submitte
 Results are described and encoded as Gel does:
 
 - A link in a shape is a nested object (`{id}` without a sub-shape), flagged as a link; a multi link, a multi property and a computed set are sets of their element type.
-- Objects carry Gel’s implicit `id`, which the clients hide: in a shape with no fields of its own (`select User`, a bare `insert`), and in every object shape, nested ones too, when the client asks for implicit ids — the Python client does, the JS client doesn’t. `__tid__` and `__tname__` are added the same way when asked for.
+- Objects carry Gel’s implicit `id`, which the clients hide: in a shape with no fields of its own (`select User`, a bare `insert`; a link property is a field, so `members: { @role }` has no `id` unless the client asks for ids), and in every object shape, nested ones too, when the client asks for implicit ids — the Python client does, the JS client doesn’t. `__tid__` and `__tname__` are added the same way when asked for; `__tid__` is a stable id of the type, a version 5 UUID of its qualified name (`default::User`), the same across restarts and servers.
 - A link property (`@since`, flagged as one), a splat (`{ * }`, the type’s stored properties, `id` first) and a type-intersection field (`[is Circle].radius`, empty on other objects) are described with their own types.
-- A `group` answers free objects `{key, grouping, elements}`: `key` an object of the key names, `grouping` a set of `str`, `elements` a set of the element shape. A key of objects (`using b := .best by b`) is each object, in its `{id}`; under grouping sets, `cube` or `rollup`, a key outside a group’s set is empty.
+- A `group` answers free objects `{key, grouping, elements}`: `key` an object of the key names (`by (.a, .b)` and grouping sets name each key by its property, `a` and `b`), `grouping` a set of `str`, `elements` a set of the element shape. A key of objects (`using b := .best by b`) is each object, in its `{id}`; under grouping sets, `cube` or `rollup`, a key outside a group’s set is empty.
 - A bare `insert`, `update` or `delete` answers the set of objects it wrote, each its `{id}`.
-- Output format NONE (`execute`) is described as the null type id, with no result.
-- `querySingle`, `queryRequiredSingle` and their JSON forms raise `ResultCardinalityMismatchError` (`the query has cardinality MANY which does not match the expected cardinality ONE`) for a query that returns more than one element. When the result is known to be a set as the query is parsed (`select {1, 2}`, an `update` not filtered on `.id` or an `exclusive` property), it is raised before the query runs, so nothing is written.
+- Output format NONE (`execute`) is described as the null type id, with no result, and a query without parameters describes its input as the null type id.
+- `querySingle`, `queryRequiredSingle` and their JSON forms raise `ResultCardinalityMismatchError` (`the query has cardinality MANY which does not match the expected cardinality ONE`) for a query that returns more than one element. The result’s cardinality is reported as the query is parsed, as Gel reports it, and a query that may return several — `select {1, 2}`, a select of objects or an `update` not known to keep at most one — is refused before it runs, so nothing is written, however many elements it would return. A select keeps at most one with `limit 1`, as `assert_single(…)`, or with a filter setting `.id`, an `exclusive` property, or every pointer of a type’s `constraint exclusive on (…)` to one value.
 - JSON output works: `queryJSON` answers the whole result as one JSON array, `querySingleJSON` the one object (or `null`), and the JSON_ELEMENTS format one JSON value per element — each described as `std::str`.
 
 Remaining differences from Gel:
 
-- A select of objects is checked when it runs: `querySingle` of one not filtered on `.id` or an `exclusive` property raises only if it returns more than one element, where Gel rejects it before running it.
-- `__tid__` is derived from the type’s name; Disc has no type ids of its own.
-- `group … by (.a, .b)` is described with one key named `expr` rather than `a` and `b`.
-- A query without parameters still sends an input descriptor (an empty shape) where Gel sends the null type id.
+- `select assert_single((select User { name }))` is described with its fields, but they decode as null.
+- An `exclusive` constraint on a link is not recognised for cardinality: a filter setting such a link to one object doesn’t make a select single.
 
 ---
 

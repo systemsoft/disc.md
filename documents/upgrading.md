@@ -4,6 +4,30 @@ Behaviour changes that can affect an existing deployment or client, newest first
 
 ---
 
+## Property defaults and index expressions are compiled (breaking)
+
+A property’s `default` is compiled into its column’s `DEFAULT`, and an index on an expression into a PostgreSQL expression index. Before, a default beyond a literal or a function call (an array such as `['a', 'b']`, arithmetic such as `2 + 3`) and an index on a function call (`index on (str_lower(.email))`) failed to migrate. A default that reads the object (`.n + 1`) or runs a query (`(select count(User)) + 1`) is now a schema error: compute the value in the `insert` instead. Defaults that already worked migrate to nothing. See [Schema → Default Values](schema.md#:~:text=compiled%20into%20the%20column%E2%80%99s%20DEFAULT) and [Schema → Expression Indexes](schema.md#:~:text=becomes%20part%20of%20a%20PostgreSQL%20expression%20index).
+
+## `querySingle` of a select that may return several is refused (breaking)
+
+Over the binary protocol, `querySingle`, `queryRequiredSingle` and their JSON forms refuse a select of objects that may return more than one before it runs, as Gel does: `select User { name } filter .name = 'Ada'` raises `ResultCardinalityMismatchError` even when one `User` matches. Before, it raised only when several came back. Add `limit 1`, filter on `.id` or an `exclusive` property, or wrap the select in `assert_single(…)`. See [Server → Protocol Details](server.md#:~:text=reported%20as%20the%20query%20is%20parsed).
+
+## A `str` cast to a date or time takes only ISO 8601 (breaking)
+
+`<datetime>`, `<cal::local_datetime>`, `<cal::local_date>` and `<cal::local_time>` of a `str` take only ISO 8601 text, as in Gel: a `datetime` with its time zone, the local types without one. Before, PostgreSQL read any text it could (`<datetime>'2024-01-01'` was midnight in the server’s time zone); other text now raises `InvalidValueError` with Gel’s hint. A `duration` with day, month or year units, and a `cal::date_duration` with units smaller than days, raise too. Read other formats with `to_datetime(s, fmt)` or `cal::to_local_datetime(s, fmt)`. See [Schema → Date and Time Types](schema.md#:~:text=takes%20only%20ISO%208601).
+
+## `<bool>` of a `str` takes only `true` or `false`; `<bytes>` of one is an error (breaking)
+
+`<bool>` of a `str` reads `true` or `false`, in any case, as in Gel; PostgreSQL’s `t`, `yes`, `on` and `1` now raise `invalid input syntax for type std::bool: 't'`. `<bytes>` of a `str`, which PostgreSQL read as `bytea` input, is the compile error `cannot cast 'std::str' to 'std::bytes'`: write a bytes literal (`b'x'`) or decode base64 with `std::base64_decode`. See [EdgeQL → Type Casts](edgeql.md#:~:text=is%20read%20as%20Gel%20reads%20it).
+
+## An unknown function is Gel’s `InvalidReferenceError`
+
+A call to a function the compiler doesn’t know raises `InvalidReferenceError: function 'default::nope' does not exist`, as in Gel; it was a compile error worded `Unknown function 'nope'. It is not a built-in function, …`. A call no overload of an SDL function takes is `function "f(arg0: std::int64)" does not exist`, with a `Did you want …` hint. Code that matched the old message should match the new one. See [Functions](functions.md#:~:text=Only%20registered%20functions%20compile).
+
+## SDL functions run
+
+A `function` declared in the schema now runs: a call in a query, a shape, a filter, an `order by`, a computed or a property’s default is replaced by the function’s body as the query compiles. Before, such a call compiled but failed when it ran. Nothing is created in PostgreSQL, so migrations are unchanged. A function with a `set of` parameter, one that calls itself, and two with the same signature are now schema errors, as in Gel. See [Functions → SDL Functions](functions.md#:~:text=SDL%20Functions).
+
 ## Indexing a missing JSON key raises (breaking)
 
 `x['k']` on a JSON object without `k` raises `InvalidValueError: JSON index 'k' is out of bounds`, as in Gel; it was the empty set, so `<str>item['k']` was empty and a `required` property rejected the row with a not-null error. A JSON index past either end, and indexing the wrong kind of value (`cannot index JSON number`), raise too. A key present with a JSON `null` still reads as empty. Use `json_get(x, 'k')` where a key may be absent. See [EdgeQL → Array Indexing](edgeql.md#:~:text=A%20json%20value%20indexes).

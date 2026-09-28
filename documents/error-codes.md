@@ -46,6 +46,8 @@ SQLSTATEs worth matching on: `23505` unique violation (a duplicate on an `exclus
 
 A value PostgreSQL can’t take fails with PostgreSQL’s message worded with Gel’s type names, as Gel words it: `invalid input syntax for type std::int64: "x"` (`22P02`), `value "99999" is out of range for type std::int16` and `std::int64 out of range` (`22003`), `std::cal::local_date/std::cal::local_time field value out of range: "…"` (`22008`). The SQLSTATE is PostgreSQL’s, unchanged: match on it, or on the SDK’s error class, rather than on the message.
 
+A cast of a `str` fails as Gel’s does: `<bool>'t'` is `invalid input syntax for type std::bool: 't'` (only `true` and `false` are read), `<Color>'Purple'` is `invalid input value for enum 'default::Color': "Purple"` (`22P02`), and text that isn’t ISO 8601 cast to `datetime`, `cal::local_datetime`, `cal::local_date` or `cal::local_time` is `invalid input syntax for type std::datetime: 'x'` (`22007`) with Gel’s hint, `Please use ISO8601 format. Example: 2010-12-27T23:59:59-07:00. …`. The hint is `extensions.hint` over HTTP, the hint attribute of the binary protocol’s error, and `hint` on the SDK’s `DiscQueryError`. `<bytes>'x'` is the compile error `cannot cast 'std::str' to 'std::bytes'`.
+
 `extensions.queryHash` on every response is the SHA-256 hex digest of the query text.
 
 ---

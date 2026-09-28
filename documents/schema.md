@@ -132,7 +132,9 @@ Disc supports all standard scalar types. These map directly to PostgreSQL column
 | `datetime`               | Timezone-aware datetime   | `timestamptz`   |
 | `duration`               | Time interval             | `interval`      |
 
-Durations come back as ISO 8601 text, as in Gel: a `duration` as `PT1H2M` (hours never fold into days, so 49 hours is `PT49H`), a `cal::relative_duration` as `P1Y2M3DT4H5M6.5S`, and a `cal::date_duration` as `P3D` (zero is `P0D`). Negative parts carry their own sign (`PT-1H`, `P-3D`). Casts accept both this form and PostgreSQL’s (`<duration>'01:02:00'`).
+Durations come back as ISO 8601 text, as in Gel: a `duration` as `PT1H2M` (hours never fold into days, so 49 hours is `PT49H`), a `cal::relative_duration` as `P1Y2M3DT4H5M6.5S`, and a `cal::date_duration` as `P3D` (zero is `P0D`). Negative parts carry their own sign (`PT-1H`, `P-3D`). Casts accept both this form and PostgreSQL’s (`<duration>'01:02:00'`), without day, month or year units for a `duration` and without units smaller than days for a `cal::date_duration`, as in Gel.
+
+A `str` cast to `datetime`, `cal::local_datetime`, `cal::local_date` or `cal::local_time` takes only ISO 8601 text, as in Gel: the date and time separated by a space or `T`, a `datetime` with its time zone and the local types without one (`<datetime>'2024-01-15T10:30:00Z'`, `<cal::local_datetime>'2024-01-15 10:30'`). Other text is an `InvalidValueError` (`invalid input syntax for type std::datetime: 'x'`) with Gel’s hint, `Please use ISO8601 format. Example: 2010-12-27T23:59:59-07:00. …`. Read other formats with `to_datetime(s, fmt)` and the `cal::to_local_*` functions.
 
 Date arithmetic has Gel’s result types: `cal::local_date - cal::local_date` is a `cal::date_duration` (`P3D`), and `cal::local_date ± cal::date_duration` is a `cal::local_date`.
 
@@ -294,7 +296,9 @@ module default {
 };
 ```
 
-Default values are expressions evaluated at insert time. You can use function calls like `datetime_current()` or `uuid_generate_v4()`.
+A default is parsed with the EdgeQL expression grammar and compiled into the column’s `DEFAULT`, which PostgreSQL evaluates for each insert that leaves the property out. It can be a literal, an array (`['a', 'b']`), a tuple (`(1, 'x')`, `(a := 1, b := 'x')`), arithmetic (`2 + 3`), a cast (`<int64>'7'`), a `json` value (`to_json('{"a": 1}')`), an enum value (`Mood.Sad`), or a function call: `datetime_current()`, `uuid_generate_v4()`, or a `function` the schema declares (`default := greet();`). A changed default migrates to `ALTER COLUMN … SET DEFAULT`; a database migrated by an older Disc sees no change for a default that already worked.
+
+A default that reads the object (`default := .n + 1`) or runs a query (`default := (select count(User)) + 1`) is a schema error naming the type and property. Gel evaluates such a default per insert; Disc can’t yet, because PostgreSQL evaluates a column’s `DEFAULT` before the object exists.
 
 ### Readonly Properties
 
@@ -331,7 +335,25 @@ module default {
 
 Computed properties use the `:=` assignment syntax and reference other properties using the dot prefix (`.property_name`).
 
-The expression is any EdgeQL expression, kept exactly as written: set operators (`.name union 'x'`, `except`, `intersect`), `is`, `//`, `^`, `%`, array literals, `1n`, `b''` and a path off a select (`first_team := (select .teams order by .name limit 1).name`) included. A call to a `function` the schema declares is typed by its declared return type, but Disc does not run SDL functions yet (see [Functions](functions.md#:~:text=does%20not%20yet%20create)).
+The expression is any EdgeQL expression, kept exactly as written: set operators (`.name union 'x'`, `except`, `intersect`), `is`, `//`, `^`, `%`, array literals, `1n`, `b''` and a path off a select (`first_team := (select .teams order by .name limit 1).name`) included. A call to a `function` the schema declares is inlined and typed by its declared return type (see [Functions → SDL Functions](functions.md#:~:text=SDL%20Functions)).
+
+A function is declared in a module, its body one EdgeQL expression. Parameters declared `named only` are passed by name, and the block form sets a volatility:
+
+```sdl
+module default {
+  type User {
+    required first_name: str;
+    required last_name: str;
+    display := full_name(.first_name, .last_name, sep := ' ');
+  };
+
+  function full_name(first: str, last: str, named only sep: str = ', ') -> str using (first ++ sep ++ last);
+  function new_user(first: str, last: str) -> User {
+    volatility := 'Modifying';
+    using (insert User { first_name := first, last_name := last });
+  };
+};
+```
 
 A computed value can be a **named tuple** of aggregates — a common pattern for rollups:
 
@@ -412,7 +434,7 @@ module default {
 CREATE UNIQUE INDEX uk_git_ref_program_id_name ON git_ref (program_id, name);
 ```
 
-- **Columns** follow declaration order; a single link maps to its foreign-key column `<link>_id`. Multi links, computed members and multi-step paths are rejected at migration time with a clear message, as is a type-level `exclusive` or `index on` declared on a type that has subtypes (indexes are not inherited).
+- **Columns** follow declaration order; a single link maps to its foreign-key column `<link>_id`. An element may also be an expression (`constraint exclusive on (str_lower(.email))`), which makes a unique expression index (see [Expression Indexes](#:~:text=becomes%20part%20of%20a%20PostgreSQL%20expression%20index)). Multi links, computed members and multi-step paths are rejected at migration time with a clear message, as is a type-level `exclusive` or `index on` declared on a type that has subtypes (indexes are not inherited).
 - **Name**: `uk_<table>_<col1>_<col2>…`, shortened to PostgreSQL’s 63-byte limit with an 8-hex-character hash suffix when needed (names that fit are never changed). A single-column `exclusive on (.x)` on a property that already carries a property-level `constraint exclusive` emits nothing extra.
 - **Existing deployments**: the migration engine diffs the stored schema, so a deployment whose baseline already declared the constraint (unenforced by older Disc versions) would never see a diff. `disc migrate` therefore backfills every declared type-level index it cannot find in `pg_indexes` with `CREATE UNIQUE INDEX IF NOT EXISTS …`; `disc migrate --create` previews those statements. The backfill is idempotent — a second run is a no-op.
 - **Duplicates**: if existing rows violate the constraint, the migration fails with a message naming the type and the declaration, PostgreSQL’s detail, and a `SELECT … GROUP BY … HAVING count(*) > 1` query that finds the duplicates; nothing is applied. Check for duplicates before migrating a schema whose exclusive was previously unenforced. See [Migrations → Index Operations](migrations.md#:~:text=Index%20Operations).
@@ -510,6 +532,8 @@ It becomes a PostgreSQL `CHECK` on the type’s table (and on every concrete sub
 The expression must be checkable on one row: stored properties, single links (`exists .bug` is `bug_id IS NOT NULL`), `and`/`or`/`not`, comparisons, `??`, `if … else`, casts and ordinary functions. Paths through a link (`.bug.title`), multi links and properties, backlinks, aggregates, subqueries, parameters, globals, computed members and non-immutable functions such as `datetime_current()` are a schema error naming the type and constraint. EdgeQL has no `xor`; write “exactly one of” as `(exists .bug) != (exists .patch)`.
 
 On a property, `constraint expression on (len(__subject__) > 2)` compiles the same way, with `__subject__` standing for the property.
+
+A constraint’s expression and arguments are parsed with the EdgeQL expression grammar and kept as written, so set literals, `//` and `^` work in them: `constraint expression on (.tier in {'gold', 'silver'})`, `constraint max_len_value(2 ^ 3)`.
 
 ### `regexp`
 
@@ -795,6 +819,8 @@ A link property can also be read, filtered and ordered on in a sub-shape that ha
 
 A computed link that aliases one link (`ms := .members`) carries its link properties: `ms: { name, @role }`. One through several links (`team_roles := .teams.members`) has none, as in Gel — `team_roles: { @role }` is `link 'team_roles' of object type 'default::Org' has no property 'role'` — but a path reads the property on its last link: `roles := .teams.members@role`.
 
+In a query, a shape on a path through several links reads the last link’s property under a name of its own: `select Org { m := .teams.members { name, lr := @role } }` has one object per link (a member on two teams comes twice), and `(select .teams.members { name, lr := @role } filter @role = 'lead')` filters and orders on it. The shorthand `{ @role }` there is the error above, as in Gel.
+
 ### Abstract Links
 
 Abstract links define reusable link templates with shared properties and constraints:
@@ -821,7 +847,7 @@ Concrete links that extend an abstract link inherit its properties and constrain
 
 ## Indexes
 
-Indexes improve query performance on frequently filtered or sorted properties.
+Indexes improve query performance on frequently filtered or sorted properties. An index’s expression is parsed with the EdgeQL expression grammar and kept as written.
 
 ### Property Indexes
 
@@ -863,6 +889,7 @@ Indexes can be defined on expressions, not just individual properties:
 ```sdl
 module default {
   type User {
+    required email: str;
     required last_name: str;
     required first_name: str;
 
@@ -874,6 +901,10 @@ module default {
   };
 };
 ```
+
+An element that is an expression, not a property or a link, becomes part of a PostgreSQL expression index, alone or next to columns: `index on (str_lower(.email))` indexes `(lower(email))`, and `index on ((.first_name, str_lower(.last_name)))` indexes `(first_name, lower(last_name))`. A named index (`index full_name on (.first_name ++ ' ' ++ .last_name)`) and a type-level `constraint exclusive on (str_lower(.email))`, which is a unique expression index, compile the same way. An unnamed index is named after its expression (`idx_<table>_str_lower_email`). A changed expression drops the old index and creates the new one.
+
+An index expression may read only the object’s own row and must be immutable: `index on (datetime_current())` and `index on (random())` are the schema error `index expressions must be immutable`, and an aggregate such as `index on (count(.email))` is a schema error because it reads more than the object’s own row.
 
 ### Named Indexes
 
@@ -1160,6 +1191,8 @@ An access policy has:
 - One or more **actions** (`allow` or `deny`) specifying which operations are affected
 - A `using` **condition** expression evaluated at query time
 
+The `using` and `when` conditions are parsed with the EdgeQL expression grammar and kept as written: `using (.tier in {'bronze'})`.
+
 ### Supported Operations
 
 | Operation | Description                       |
@@ -1438,6 +1471,8 @@ module default {
 };
 ```
 
+A global’s default is parsed with the EdgeQL expression grammar and kept as written: `global tiers: array<str> { default := ['gold', 'silver']; };`.
+
 ### Required Globals
 
 A required global must be set before queries that reference it will succeed:
@@ -1530,6 +1565,8 @@ module default {
 ```
 
 Aliases are resolved at query time. They do not create tables or store data.
+
+An alias’s expression is parsed with the EdgeQL expression grammar and kept as written. An alias of a type’s objects, shaped or not, with no `filter`, `order by`, `offset` or `limit` (`alias People := User`, `alias Named := User { name, loud := str_upper(.name) }`), is a view type: its type’s objects, with each computed of the shape a property, so `select Named { name } filter .loud = 'A'` reads as on a type declaring `loud`. Any other alias (`alias Roles := User.role union 'none'`, `alias Admins := (select User filter .role = "admin")`) is compiled as a hidden `with` binding of its expression ahead of the query naming it, and returns its values or objects: `select Roles`, `select count(Roles)`. An alias may name another. An alias named through `with module`, or inside a schema computed, is not bound yet.
 
 ---
 

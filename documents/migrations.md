@@ -189,7 +189,7 @@ Loads the most recently applied migration from the `disc_migrations` table, exec
 disc migrate --rollback-to m20240115T103000_abc123 --force
 ```
 
-Rolls back all migrations applied after the specified migration ID, in reverse chronological order (most recent first). The target migration itself is preserved.
+Rolls back all migrations applied after the specified migration ID, in reverse chronological order (most recent first). The target migration itself is preserved. Here and for `--rollback`, “most recent” is by apply order (`applied_order`), not the `applied_at` timestamp, so migrations applied in the same instant still roll back latest first.
 
 For example, if you have migrations `m001`, `m002`, `m003` applied and you run `--rollback-to m001`, then `m003` is rolled back first, followed by `m002`. Migration `m001` remains applied.
 
@@ -587,12 +587,14 @@ The differ compares the index sets on a surviving type and emits standalone inde
 
 - **Added** index → `CreateIndex`, emitting `CREATE INDEX idx_<table>_<col> ON <table> (col);` (with `UNIQUE`, `USING <method>`, and a partial `WHERE` clause added when the index declares them).
 - **Removed** index → `DropIndex`, emitting `DROP INDEX IF EXISTS idx_<table>_<col>;`.
-- **Changed** index (same name, different columns or uniqueness) → a `DropIndex` followed by a `CreateIndex` — the old definition is dropped first so the re-create can’t collide with the stale one.
+- **Changed** index (same name, different columns, expressions or uniqueness) → a `DropIndex` followed by a `CreateIndex` — the old definition is dropped first so the re-create can’t collide with the stale one.
 - **Unchanged** index → no operation.
 
-Indexes are keyed by name plus their ordered column list (and uniqueness), so reordering columns or toggling `unique` counts as a change. All four index operations are classified `safe`.
+Indexes are keyed by name plus their ordered column list, expressions and uniqueness, so reordering columns, changing an expression or toggling `unique` counts as a change. All four index operations are classified `safe`.
 
 Index columns are resolved through the type (and the types it extends): a single link resolves to its `<link>_id` column. A non-unique single-column index on a single link is skipped, because the foreign-key column already carries the auto-created `idx_<table>_<link>_id` index and a second one would collide by name. Multi links, computed members and multi-step paths are a planning error (`Failed to plan migration: …`), as is a type-level `exclusive`/`index on` on a type that has subtypes. Index names longer than PostgreSQL’s 63 bytes are shortened with an 8-hex-character hash suffix; names that fit are never changed.
+
+An element that is an expression (`index on (str_lower(.email))`, `constraint exclusive on (str_lower(.email))`) is compiled into a PostgreSQL expression index (`(lower(email))`), alone or next to columns. An expression that reads more than the object’s own row, or isn’t immutable (`datetime_current()`, `random()`), is a planning error; one that isn’t immutable reads `index expressions must be immutable`. See [Schema → Expression Indexes](schema.md#:~:text=becomes%20part%20of%20a%20PostgreSQL%20expression%20index).
 
 ### Index backfill
 

@@ -653,7 +653,7 @@ All SDK errors extend `DiscClientError`, which carries a `code` property from th
 | `DiscConnectionError`  | `CONNECTION_ERROR`  | Server unreachable, connection refused              |
 | `DiscNetworkError`     | `NETWORK_ERROR`     | Fetch failed, DNS resolution error                  |
 | `DiscProtocolError`    | `PROTOCOL_ERROR`    | Any other non-OK response: 413 body too large, 404 unknown transaction, 429, or an unexpected body. Carries `statusCode`. |
-| `DiscQueryError`       | `QUERY_ERROR`       | Server returns one or more query errors. Carries `errors` and `sqlState` (the PostgreSQL SQLSTATE, when the statement reached the database). |
+| `DiscQueryError`       | `QUERY_ERROR`       | Server returns one or more query errors. Carries `errors`, `sqlState` (the PostgreSQL SQLSTATE, when the statement reached the database) and `hint` (Gel’s hint, when the error has one: `Please use ISO8601 format. …`). |
 | `ConstraintViolationError` | `QUERY_ERROR`   | `DiscQueryError` for SQLSTATE class 23; carries `constraint`, `table`, `detail` |
 | `UniqueViolationError` | `QUERY_ERROR`       | `ConstraintViolationError` for 23505 — a duplicate on an `exclusive` constraint or unique index |
 | `ForeignKeyViolationError` | `QUERY_ERROR`   | `ConstraintViolationError` for 23503 — a link to a row that does not exist |
@@ -969,7 +969,7 @@ The complete list of exports from `disc/sdk/mod.ts`:
 | `DiscErrorCode`             | Error code enum                                                      |
 | `DiscNetworkError`          | Network failure                                                      |
 | `DiscProtocolError`         | Any other non-OK response (`statusCode`)                             |
-| `DiscQueryError`            | Query execution error (`errors`, `sqlState`)                         |
+| `DiscQueryError`            | Query execution error (`errors`, `sqlState`, `hint`)                 |
 | `DiscServerError`           | Server 5xx error                                                     |
 | `DiscTimeoutError`          | Request timeout                                                      |
 | `DiscTransactionError`      | Invalid or failed transaction state (`cause`)                        |
