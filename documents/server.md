@@ -812,17 +812,21 @@ The binary protocol shares the same schema as the HTTP handler. Queries submitte
 
 Results are described and encoded as Gel does:
 
-- A link in a shape is a nested object (`{id}` without a sub-shape); a multi link, a multi property and a computed set are sets of their element type.
-- A `group` answers free objects `{key, grouping, elements}`: `key` an object of the key names, `grouping` a set of `str`, `elements` a set of the element shape.
+- A link in a shape is a nested object (`{id}` without a sub-shape), flagged as a link; a multi link, a multi property and a computed set are sets of their element type.
+- Objects carry Gel’s implicit `id`, which the clients hide: in a shape with no fields of its own (`select User`, a bare `insert`), and in every object shape, nested ones too, when the client asks for implicit ids — the Python client does, the JS client doesn’t. `__tid__` and `__tname__` are added the same way when asked for.
+- A link property (`@since`, flagged as one), a splat (`{ * }`, the type’s stored properties, `id` first) and a type-intersection field (`[is Circle].radius`, empty on other objects) are described with their own types.
+- A `group` answers free objects `{key, grouping, elements}`: `key` an object of the key names, `grouping` a set of `str`, `elements` a set of the element shape. A key of objects (`using b := .best by b`) is each object, in its `{id}`; under grouping sets, `cube` or `rollup`, a key outside a group’s set is empty.
 - A bare `insert`, `update` or `delete` answers the set of objects it wrote, each its `{id}`.
+- Output format NONE (`execute`) is described as the null type id, with no result.
+- `querySingle`, `queryRequiredSingle` and their JSON forms raise `ResultCardinalityMismatchError` (`the query has cardinality MANY which does not match the expected cardinality ONE`) for a query that returns more than one element. When the result is known to be a set as the query is parsed (`select {1, 2}`, an `update` not filtered on `.id` or an `exclusive` property), it is raised before the query runs, so nothing is written.
 - JSON output works: `queryJSON` answers the whole result as one JSON array, `querySingleJSON` the one object (or `null`), and the JSON_ELEMENTS format one JSON value per element — each described as `std::str`.
 
 Remaining differences from Gel:
 
-- A shape does not carry Gel’s implicit `id` field; select `id` explicitly when a client needs it.
-- A link property (`@since`), a splat (`{ * }`) and a type-intersection field (`[is Circle].radius`) in a shape are described as an optional `uuid` rather than their own type.
-- `querySingleJSON` of a query that returns more than one row does not raise; each row is sent.
-- Output format NONE still sends a shape descriptor (no data).
+- A select of objects is checked when it runs: `querySingle` of one not filtered on `.id` or an `exclusive` property raises only if it returns more than one element, where Gel rejects it before running it.
+- `__tid__` is derived from the type’s name; Disc has no type ids of its own.
+- `group … by (.a, .b)` is described with one key named `expr` rather than `a` and `b`.
+- A query without parameters still sends an input descriptor (an empty shape) where Gel sends the null type id.
 
 ---
 

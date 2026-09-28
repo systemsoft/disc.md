@@ -6,6 +6,8 @@ This reference documents every function registered in the Disc compiler. Functio
 
 Only registered functions compile. A call to a name the compiler does not know — a built-in (with or without `std::`), an SDL `function` declaration (`f` / `default::f`, or `mod::f` in another module), or an extension or custom function — is a compile error naming it. PostgreSQL-native names such as `lower()`, `coalesce()` or `now()` are not passed through; use `str_lower()`, `??` and `datetime_current()`.
 
+An SDL `function`’s body (`using (…)`) is parsed as a full EdgeQL expression, and its signature is known: a call to it compiles, and [codegen](codegen.md) types a computed that calls it by its declared return type. Disc does not yet create the function in PostgreSQL, though, so a query that calls one fails when it runs.
+
 **See also:** [EdgeQL](edgeql.md) | [Schema](schema.md) | [CLI](cli.md)
 
 ---
@@ -895,7 +897,7 @@ select array_agg(User.name);
 
 Type conversion functions cast values from one type to another. They compile to PostgreSQL `CAST` expressions.
 
-The string parsers `to_int16`, `to_int32`, `to_int64`, `to_float32`, `to_float64`, `to_bigint` and `to_decimal` take an optional format as a second argument, as in Gel: a PostgreSQL `to_number` pattern (`to_int64('1,234', '9,999')` is `1234`; an integer parser rounds, so `to_int64('12.7', '99.9')` is `13`). An empty format is an error (`to_int64(): "fmt" argument must be a non-empty string`); an empty-set format parses as without one.
+The string parsers `to_int16`, `to_int32`, `to_int64`, `to_float32`, `to_float64`, `to_bigint` and `to_decimal` take an optional format as a second argument, as in Gel: a PostgreSQL `to_number` pattern (`to_int64('1,234', '9,999')` is `1234`; an integer parser rounds, so `to_int64('12.7', '99.9')` is `13`). An empty format is an error (`to_int64(): "fmt" argument must be a non-empty string`), even for an empty value the query names (`to_int64(<str>{}, '')`); an empty-set format parses as without one.
 
 ### `to_str`
 
@@ -937,6 +939,8 @@ With a format, `to_str` follows Gel, which hands it to PostgreSQL’s `to_char`:
 - An `array<str>` is joined with the format as the delimiter, as `array_join` does.
 
 An empty format is `to_str(): "fmt" argument must be a non-empty string`; an empty-set format gives the text without one. A `str` or `bool` takes no format.
+
+For an integer, a float, a `decimal`, a `cal::local_time` or `json`, an empty format raises even when the value is an empty set the query names (`to_str(<int64>{}, '')`, or an `<optional int64>$v` given `null`), as do the number and `cal::to_local_date` / `cal::to_local_time` parsers. Disc raises this every time; Gel 7.1 raises it only the first time it runs such a query and answers `[]` from its query cache after. The other types, and a value of each row (`to_str(.n, '')` of an object without `n`), give the empty set.
 
 ---
 
@@ -1667,7 +1671,7 @@ select to_datetime(2024, 1, 2, 3, 4, 5.5, 'Europe/Berlin');
 # => 2024-01-02T02:04:05.5+00:00
 ```
 
-A format is a PostgreSQL `to_timestamp` pattern and, as in Gel, must include the time zone (`TZH`): without one it is `missing required time zone in format: '…'`, and an input without one is `missing required time zone in input '…'`.
+A format is a PostgreSQL `to_timestamp` pattern and, as in Gel, must include the time zone (`TZH`): without one it is `missing required time zone in format: '…'`, and an input without one is `missing required time zone in input '…'`. The result must fall in years 1 to 9999 (UTC), as in Gel: `to_datetime('10000-01-01 +00', 'YYYY-MM-DD TZH')` is `'std::datetime' value out of range`, as is a format without a year, which parses as year 1 BC.
 
 **SQL equivalent:** `CAST('2024-01-01' AS timestamp with time zone)`
 
@@ -1711,7 +1715,7 @@ select cal::to_local_date(<datetime>'2024-01-02T20:00:00Z', 'Asia/Tokyo'); # 202
 select cal::to_local_date(2024, 1, 2);
 ```
 
-A format for any of the `cal::to_local_*` parsers must not name a time zone, as in Gel: `TZH` in it is `unexpected time zone in format: '…'`.
+A format for any of the `cal::to_local_*` parsers must not name a time zone, as in Gel: `TZH` in it is `unexpected time zone in format: '…'`. It should name a year: the parsed value must fall in years 1 to 9999, and a format without one (`cal::to_local_date('10 5', 'MM DD')`, `cal::to_local_time('10:30', 'HH24:MI')`) parses as year 1 BC, which is `'std::datetime' value out of range`, as in Gel. An empty format is `to_local_date(): "fmt" argument must be a non-empty string` (`to_local_time()` likewise), even for an empty value.
 
 **SQL equivalent:** `CAST('2024-01-01' AS date)`
 
@@ -1735,6 +1739,8 @@ select cal::to_local_time('2024 13:02', 'YYYY HH24:MI');                        
 select cal::to_local_time(<datetime>'2024-01-02T20:00:00Z', 'America/New_York'); # 15:00:00
 select cal::to_local_time(3, 4, 5.5);
 ```
+
+A format names a year (`YYYY`), which the time then drops: without one, `cal::to_local_time('10:30', 'HH24:MI')` is `'std::datetime' value out of range`, as in Gel.
 
 **SQL equivalent:** `CAST('12:00:00' AS time without time zone)`
 

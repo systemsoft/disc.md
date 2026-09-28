@@ -331,6 +331,8 @@ module default {
 
 Computed properties use the `:=` assignment syntax and reference other properties using the dot prefix (`.property_name`).
 
+The expression is any EdgeQL expression, kept exactly as written: set operators (`.name union 'x'`, `except`, `intersect`), `is`, `//`, `^`, `%`, array literals, `1n`, `b''` and a path off a select (`first_team := (select .teams order by .name limit 1).name`) included. A call to a `function` the schema declares is typed by its declared return type, but Disc does not run SDL functions yet (see [Functions](functions.md#:~:text=does%20not%20yet%20create)).
+
 A computed value can be a **named tuple** of aggregates — a common pattern for rollups:
 
 ```sdl
@@ -790,6 +792,8 @@ select User {
 ```
 
 A link property can also be read, filtered and ordered on in a sub-shape that has an `offset` or `limit`, on the stored link, a computed link to it or a backlink over it: `friends: { name, @since } filter @nickname != "x" order by @since desc limit 5`. It comes back keyed `"@since"`.
+
+A computed link that aliases one link (`ms := .members`) carries its link properties: `ms: { name, @role }`. One through several links (`team_roles := .teams.members`) has none, as in Gel — `team_roles: { @role }` is `link 'team_roles' of object type 'default::Org' has no property 'role'` — but a path reads the property on its last link: `roles := .teams.members@role`.
 
 ### Abstract Links
 
@@ -1570,6 +1574,8 @@ Supported array element types and their PostgreSQL mappings:
 | `array<json>`                | `jsonb[]`            |
 | `array<str>`                 | `text[]`             |
 | `array<uuid>`                | `uuid[]`             |
+
+An array of arrays is a query value only, as in Gel: a property, tuple element or scalar type of `array<array<…>>` is the schema error `nested arrays are not supported`. An array of tuples of arrays (`array<tuple<array<int64>>>`) is allowed. See [EdgeQL → Arrays of Arrays](edgeql.md#:~:text=Arrays%20of%20Arrays).
 
 ### Tuples
 

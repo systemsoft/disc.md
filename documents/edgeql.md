@@ -707,11 +707,11 @@ A cast whose operand is JSON reads the value out of the JSON rather than re-pars
 | :------------------ | :----------------------------------------------------------------------------------------------------------------- |
 | `<str>`             | The string without its JSON quotes (`#>> '{}'`).                                                                   |
 | numeric, `<bool>`, `<uuid>`, `<datetime>`, enums | Read from that text, then cast. A JSON *string* `"12"` casts to `<int64>` (more lenient than Gel). |
-| `<array<T>>`        | Element order is kept; `[]` is an empty array; a missing key or JSON `null` is NULL (so a `required` array property rejects the row). A non-array is a PostgreSQL error. |
+| `<array<T>>`        | Element order is kept; `[]` is an empty array; a JSON `null` is NULL (so a `required` array property rejects the row). A non-array is a PostgreSQL error. |
 | `<json>`            | Plain cast.                                                                                                        |
 | `<bytes>`           | Compile error — JSON carries bytes as base64 text; use `std::base64_decode(<str>j['content'])`.                    |
 
-A missing key or a JSON `null` yields the empty set for every cast. The compiler decides syntactically what counts as a JSON operand: a `<json>` cast; a subscript with a string-literal key (`x['k']`) or any subscript on one of these; a call to a function returning json (`json_get`, `to_json`, `json_array_unpack`, `json_object_unpack`); a `with` binding, set-literal `for` element or `for` variable over `json_array_unpack(…)` bound to one of these; and a one-step path to a stored `json` property. Anything else (`a ?? b`, `if … else`, a subquery, `.link.meta`, a tuple element) keeps the plain SQL cast — put an explicit `<json>` in front of it first.
+A JSON `null` — a key present with a `null` value — yields the empty set for every cast. A missing key raises, as in Gel (`JSON index 'k' is out of bounds`, see [JSON indexing](#:~:text=A%20json%20value%20indexes)); `json_get(x, 'k')` reads a key that may be absent as the empty set. The compiler decides syntactically what counts as a JSON operand: a `<json>` cast; a subscript with a string-literal key (`x['k']`) or any subscript on one of these; a call to a function returning json (`json_get`, `to_json`, `json_array_unpack`, `json_object_unpack`); a `with` binding, set-literal `for` element or `for` variable over `json_array_unpack(…)` bound to one of these; and a one-step path to a stored `json` property. Anything else (`a ?? b`, `if … else`, a subquery, `.link.meta`, a tuple element) keeps the plain SQL cast — put an explicit `<json>` in front of it first.
 
 ### JSON Casts
 
@@ -740,7 +740,9 @@ EdgeQL supports a comprehensive set of operators.
 | `/`      | Division       | `select 10 / 3;`  |
 | `//`     | Floor division | `select 10 // 3;` |
 | `%`      | Modulo         | `select 10 % 3;`  |
-| `**`     | Exponentiation | `select 2 ** 10;` |
+| `^`      | Power          | `select 2 ^ 10;`  |
+
+`^` is Gel’s power operator. It binds tighter than unary minus and to the right — `-2 ^ 2` is `-4`, `2 ^ 3 ^ 2` is `512` — and its exponent may be negated (`2 ^ -1` is `0.5`). Integers and floats raise to a `float64` (`2 ^ 3` is `8.0`), a `decimal` or `bigint` to a `decimal`. Zero to a negative power (`0 ^ -1`) is `zero raised to a negative power is undefined`, and a negative number to a fractional one (`(-8) ^ 0.5`) is `a negative number raised to a non-integer power yields a complex result`.
 
 Unary minus:
 
@@ -817,10 +819,12 @@ select Shape filter Shape is not Rectangle;
 
 ### Pattern Matching
 
-| Operator | Description                    | Example               |
-| :------- | :----------------------------- | :-------------------- |
-| `like`   | Case-sensitive pattern match   | `.name like "A%"`     |
-| `ilike`  | Case-insensitive pattern match | `.name ilike "%ada%"` |
+| Operator    | Description                    | Example                   |
+| :---------- | :----------------------------- | :------------------------ |
+| `like`      | Case-sensitive pattern match   | `.name like "A%"`         |
+| `ilike`     | Case-insensitive pattern match | `.name ilike "%ada%"`     |
+| `not like`  | Negated `like`                 | `.name not like "A%"`     |
+| `not ilike` | Negated `ilike`                | `.name not ilike "%ada%"` |
 
 Pattern wildcards:
 
@@ -853,7 +857,6 @@ select User filter .name ~* "ada";
 | :------- | :------------------ | :----------------- |
 | `&`      | Bitwise AND         | `select 12 & 10;`  |
 | `\|`     | Bitwise OR          | `select 12 \| 10;` |
-| `^`      | Bitwise XOR         | `select 12 ^ 10;`  |
 | `<<`     | Left shift          | `select 1 << 4;`   |
 | `>>`     | Right shift         | `select 16 >> 2;`  |
 | `~`      | Bitwise NOT (unary) | `select ~42;`      |
@@ -898,12 +901,12 @@ select Event filter .time_range @> <datetime>"2024-06-15T12:00:00Z";
 
 ### Operator Precedence (highest to lowest)
 
-1. Unary: `+`, `-`, `not`, `exists`, `distinct`, `~`
-2. Exponentiation: `**`
+1. Power: `^` (right to left)
+2. Unary: `+`, `-`, `not`, `exists`, `distinct`, `~`
 3. Multiplicative: `*`, `/`, `//`, `%`
 4. Additive: `+`, `-`, `++`
 5. Comparison: `=`, `!=`, `<`, `>`, `<=`, `>=`, `?=`, `?!=`
-6. Membership: `in`, `not in`, `is`, `is not`, `like`, `ilike`
+6. Membership: `in`, `not in`, `is`, `is not`, `like`, `ilike`, `not like`, `not ilike`
 7. Regex: `~`, `!~`, `~*`, `!~*`
 8. Logical AND: `and`
 9. Logical OR: `or`
@@ -1015,15 +1018,15 @@ union (
 
 ```sql
 INSERT INTO git_object (program_id, object_id, object_type, size, content)
-SELECT CAST($2 AS uuid), (for_iter.val -> 'object_id') #>> '{}', (for_iter.val -> 'object_type') #>> '{}',
-       CAST((for_iter.val -> 'size') #>> '{}' AS bigint), std_base64_decode((for_iter.val -> 'content') #>> '{}')
+SELECT CAST($2 AS uuid), (disc_json_index(for_iter.val, 'object_id')) #>> '{}', (disc_json_index(for_iter.val, 'object_type')) #>> '{}',
+       CAST((disc_json_index(for_iter.val, 'size')) #>> '{}' AS bigint), std_base64_decode((disc_json_index(for_iter.val, 'content')) #>> '{}')
 FROM JSONB_ARRAY_ELEMENTS(CAST($1 AS jsonb)) AS for_iter(val)
 ON CONFLICT (program_id, object_id) DO NOTHING RETURNING id
 ```
 
 - **Response:** `[{ "id": "…" }, …]` — one entry per row actually inserted, never the inserted properties. With `unless conflict on (…)`, rows that already existed are absent, so re-running the same request is a no-op that answers `[]` and raises nothing.
 - **Iterators:** `json_array_unpack(…)`, `array_unpack(<array<T>>$xs)`, `range_unpack(…)` (integer ranges), or a subquery. The body is one `insert` (no multi-link assignment) or a `select`. `update`/`delete` bodies are not supported — use one statement with `filter .id in array_unpack(<array<uuid>>$ids)` instead.
-- **JSON casts:** `<str>item['k']` gives the string without quotes; `<array<str>>item['parents']` keeps order and round-trips `[]`; bytes go in as base64 text and are decoded with `std::base64_decode(<str>…)` (see [Casting from JSON](#:~:text=Casting%20from%20JSON)).
+- **JSON casts:** `<str>item['k']` gives the string without quotes; `<array<str>>item['parents']` keeps order and round-trips `[]`; bytes go in as base64 text and are decoded with `std::base64_decode(<str>…)` (see [Casting from JSON](#:~:text=Casting%20from%20JSON)). A row missing a key raises `JSON index 'k' is out of bounds`, which rejects the statement; a key present with `null` is empty, and `<str>json_get(item, 'k')` reads a key a row may leave out.
 - **`with` bindings** are visible in the body, including an object selected once: `with prog := (select Program filter .id = <uuid>$p) for … union (insert GitObject { program := prog, … })`.
 - **Size:** the request body is capped at 4 MiB by default (about 3 MiB of raw bytes as base64); raise `DISC_MAX_REQUEST_BODY_BYTES` or chunk.
 - **Policies:** the insert policy applies to the body exactly as to a bare insert.
@@ -1164,6 +1167,17 @@ group User { email, name }
 by .status;
 ```
 
+The grouped objects may also be a select, a `with` binding or a path, as in Gel. A path’s objects are distinct: in `group Post.author { name } by .role`, the author of two posts is one element.
+
+```edgeql
+group (select User filter .active) { name }
+by .role;
+
+with u := (select User filter .score > 3)
+group u { name }
+by .role;
+```
+
 ### `USING` and Multiple Group Keys
 
 `using` binds a key to an expression; `by` lists the keys, bound names and properties alike:
@@ -1174,6 +1188,24 @@ using month := datetime_truncate(.created_at, "month")
 by month, .status;
 # key: { "month": "2026-03-01T00:00:00+00:00", "status": "paid" }, grouping: ["month", "status"]
 ```
+
+### Grouping Sets, `cube` and `rollup`
+
+As in Gel, `by` may name several sets of keys, each grouped on its own: `{.a, .b}` groups by `.a` and, separately, by `.b`; `cube(.a, .b)` by every subset of the keys (`.a, .b`; `.a`; `.b`; none); `rollup(.a, .b)` by each leading run (`.a, .b`; `.a`; none). In a group of one set, the keys outside it are `null` and left out of `grouping`:
+
+```edgeql
+select (group User by cube(.role, .active)) {
+  key: { role, active },
+  grouping,
+  n := count(.elements)
+};
+# { key: { role: null, active: null }, grouping: [], n: 3 }
+# { key: { role: "dev", active: null }, grouping: ["role"], n: 2 }
+# { key: { role: "dev", active: true }, grouping: ["role", "active"], n: 1 }
+# …
+```
+
+Sets combine with plain keys — `by .role, {.active, .name}` groups by `.role` with each of the others — and a parenthesized list groups as its keys alone do: `by (.role, .active)` is `by .role, .active`.
 
 ### Selecting Over a Group
 
@@ -1189,7 +1221,9 @@ order by .n desc
 limit 5;
 ```
 
-`elements: { name }` gives the elements a shape; without one they take the group’s (`group User { name } by …`).
+`elements: { name }` gives the elements a shape; without one they take the group’s (`group User { name } by …`). The sub-shape takes its own `filter`, `order by`, `offset` and `limit`, which pick and order each group’s elements: `elements: { name } order by .name desc limit 1`. A computed of the elements’ values is each group’s list of them — `names := .elements.name`, `e := .elements.name ++ '!'` — and `.elements { name }` or `(select .elements { name } filter .score > 3)` is a select of the group’s objects. A bare `key`, without a sub-shape, is Gel’s empty free object `{}`; name the keys (`key: { status }`) to read them.
+
+`.elements.x` in the select’s own `filter` or `order by` is not supported yet; filter and order on a computed that aggregates the elements (`n := count(.elements)`).
 
 ### `FILTER` on Groups
 
@@ -1503,6 +1537,8 @@ select "abc"[1];               # Returns "b"
 
 An index past either end raises `InvalidValueError`, as in Gel: `select [10, 20, 30][5]` fails with `array index 5 is out of bounds` (`string index …` for a `str`, `byte string index …` for `bytes`). Use `array_get` for an element that may be missing — it returns the empty set instead. Strings and `bytes` index the same way as arrays.
 
+A json value indexes as in Gel: an array by position (a negative index counts from the end), a string by character (`(<json>'xyz')[0]` is `"x"`), an object by key (`j['name']`). An index past either end or a missing key raises `InvalidValueError` — `JSON index 5 is out of bounds`, `JSON index 'missing' is out of bounds` — and so does indexing the wrong kind of value: `cannot index JSON number` (`string`, `boolean`, `null`), `cannot index JSON array by text`, `cannot index JSON object by bigint`. A key present with a JSON `null` reads as empty once cast. `json_get(j, 'k')` returns the empty set for a missing key or index instead.
+
 ### Array Slicing
 
 Extract sub-arrays with `[start:end]` syntax — 0-based, end-exclusive; a negative bound counts from the end and an omitted bound means the start or end:
@@ -1574,12 +1610,13 @@ select (name := "Ada", age := 30).age;    # Returns 30
 
 An element keeps its own type: `(a := 1).a` is an `int64`, so `(a := 1).a + 1` returns `2`. Element access works through paths too — `select Rec.t.a` on a stored `tuple<a: int64, b: str>` property returns the bare `a` values, one per object.
 
-Tuples united into one set or array — an array literal, `++`, a set literal `{…}`, `union` — keep their names only when every tuple has the same names; otherwise the result is unnamed, as in Gel:
+Tuples united into one set or array — an array literal, `++`, a set literal `{…}`, `union` — and the alternatives of `??` and `if … else` keep their names only when every tuple has the same names; otherwise the result is unnamed, as in Gel:
 
 ```edgeql
 select [(a := 1)] ++ [(a := 2)];     # Returns [(a := 1), (a := 2)]
 select [(a := 1)] ++ [(2,)];         # Returns [(1,), (2,)]
 select (a := 1) union (b := 2);      # Returns {(1,), (2,)}
+select (a := 1) ?? (b := 2);         # Returns (1,)
 ```
 
 ### Arrays of Tuples
@@ -1594,6 +1631,10 @@ select Route { first := .stops[0], rest := .stops[1:], n := len(.stops) };
 A field of an indexed element reads straight off it — `[(n := 1)][0].n`, `.stops[0].x` — and indexing, slicing and tuple access apply to a path’s set element by element: `select Route.stops[1:]`, `select Route.stops[1].y`.
 
 A parameter written to an array-of-tuples property is stored with each tuple cast to its declared types, so it compares equal to a literal of the same value.
+
+### Arrays of Arrays
+
+An array may hold arrays, of different lengths too, as in Gel: `[[1, 2], [3]]` indexes (`[[1, 2], [3]][0][1]` is `2`), slices, concatenates, unpacks, aggregates (`array_agg({[1, 2], [3]})`), compares and casts to and from `json` like any array, and binds as a parameter (`<array<array<int64>>>$grid`). A schema type can’t be one: a property, tuple element or scalar type of `array<array<…>>` is rejected with `nested arrays are not supported`, as Gel rejects it. An array of tuples of arrays (`array<tuple<array<int64>>>`) is allowed.
 
 ### Arrays and Tuples in Shapes
 

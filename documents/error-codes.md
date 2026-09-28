@@ -44,6 +44,8 @@ A failed `POST /query` answers `{ "errors": [{ "message", "extensions": { "code"
 
 SQLSTATEs worth matching on: `23505` unique violation (a duplicate on an `exclusive` constraint or unique index; `constraint` names it), `23503` foreign-key violation, `23514` check violation (a `regexp`, `one_of`, `min_value`… constraint on a property or scalar type, or an `expression on` constraint), `21000` cardinality violation (`assert_single` found several, or an object cast `<T><uuid>$p` named an id no `T` has: `'default::T' with id '…' does not exist`), `40001` serialization failure and `40P01` deadlock (retry the whole transaction). The SDK maps these to `UniqueViolationError`, `ForeignKeyViolationError`, `ConstraintViolationError`, `CardinalityViolationError`, `SerializationFailureError` and `DeadlockError`, all `instanceof DiscQueryError` with `.sqlState`.
 
+A value PostgreSQL can’t take fails with PostgreSQL’s message worded with Gel’s type names, as Gel words it: `invalid input syntax for type std::int64: "x"` (`22P02`), `value "99999" is out of range for type std::int16` and `std::int64 out of range` (`22003`), `std::cal::local_date/std::cal::local_time field value out of range: "…"` (`22008`). The SQLSTATE is PostgreSQL’s, unchanged: match on it, or on the SDK’s error class, rather than on the message.
+
 `extensions.queryHash` on every response is the SHA-256 hex digest of the query text.
 
 ---
@@ -69,6 +71,7 @@ All errors inherit from the abstract base class `DiscError`. Every error carries
 | `DatabaseRegistryError`  | A registry-level failure: branch not found, branch already exists, registry corrupted.                                                                                                                                                | Always non-recoverable — no automatic retry.                                                            |
 | `DatabaseExecutionError` | A PostgreSQL error wrapped with the originating SQL. Has fields `sql: string` and `cause: Error`.                                                                                                                                     | The PostgreSQL SQLSTATE (or the wrapped Disc error) determines the protocol code. |
 | `QueryTimeoutError`      | Query exceeded its configured timeout. Has fields `sql: string` and `timeoutMs: number`. Message is always `"Query timed out after Nms"`.                                                                                             | Maps to `QueryTimeoutError`.                                                                            |
+| `ResultCardinalityMismatchError` | A binary-protocol client asked for one result (`querySingle`, `queryRequiredSingle`, their JSON forms) of a query that returns more than one: `the query has cardinality MANY which does not match the expected cardinality ONE`. | Maps to `ResultCardinalityMismatchError`. |
 | `TransactionAbortedError` | `commitTransaction()` was called on a transaction that an earlier failed statement had aborted; the manager rolled it back and removed it. Has `transactionId`.                                                                    | `409` `TRANSACTION_ABORTED` over HTTP.                                                                  |
 
 ---
@@ -86,6 +89,7 @@ The high byte is the family; subsequent bytes narrow within the family.
 | 16777216 | `0x01000000` | `InternalServerError`     |
 | 33554432 | `0x02000000` | `UnsupportedFeatureError` |
 | 50331648 | `0x03000000` | `ProtocolError`           |
+| 50528256 | `0x03030000` | `ResultCardinalityMismatchError` |
 | 50594304 | `0x03040200` | `DisabledCapabilityError` |
 
 ### Query
@@ -169,6 +173,7 @@ Performed by `mapErrorToGelCode()` in [`protocol/binary-server.ts`](https://gith
 | `DisabledCapabilityError`              | `DisabledCapabilityError` (`0x03040200`)  |
 | `CompilationError`, `QueryError`       | `QueryError` (`0x04000000`)               |
 | `ValidationError`                      | `InvalidValueError` (`0x05010000`)        |
+| `ResultCardinalityMismatchError`       | `ResultCardinalityMismatchError` (`0x03030000`) |
 | `DatabaseExecutionError`               | Its `cause`’s code, else `InternalServerError` |
 | `QueryTimeoutError`                    | `QueryTimeoutError` (`0x04060200`)        |
 | `ConnectionError`                      | `BackendUnavailableError` (`0x08000001`)  |

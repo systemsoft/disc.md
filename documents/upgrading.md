@@ -4,6 +4,26 @@ Behaviour changes that can affect an existing deployment or client, newest first
 
 ---
 
+## Indexing a missing JSON key raises (breaking)
+
+`x['k']` on a JSON object without `k` raises `InvalidValueError: JSON index 'k' is out of bounds`, as in Gel; it was the empty set, so `<str>item['k']` was empty and a `required` property rejected the row with a not-null error. A JSON index past either end, and indexing the wrong kind of value (`cannot index JSON number`), raise too. A key present with a JSON `null` still reads as empty. Use `json_get(x, 'k')` where a key may be absent. See [EdgeQL → Array Indexing](edgeql.md#:~:text=A%20json%20value%20indexes).
+
+## `^` is power, not bitwise XOR (breaking)
+
+`^` is Gel’s power operator: `2 ^ 3` is `8.0` and `-2 ^ 2` is `-4`. It was PostgreSQL’s bitwise XOR, so `12 ^ 10`, which was `6`, is now `61917364224.0`. Queries and schema computeds that used it for XOR change value; `(a | b) - (a & b)` is the XOR of two integers. See [EdgeQL → Arithmetic Operators](edgeql.md#:~:text=is%20Gel%E2%80%99s%20power%20operator).
+
+## Arrays of arrays are rejected in schema types (breaking)
+
+A property, tuple element or scalar type of `array<array<…>>` is the schema error `nested arrays are not supported`, as in Gel; Disc made it a PostgreSQL array column, which can’t hold arrays of different lengths. A schema with one no longer migrates: store the value as `json` or as `array<tuple<array<…>>>`. Arrays of arrays in queries are unaffected. See [Schema → Arrays](schema.md#:~:text=An%20array%20of%20arrays%20is%20a%20query%20value%20only).
+
+## Error messages name Gel’s types
+
+A value PostgreSQL can’t take fails with Gel’s wording: `invalid input syntax for type std::int64: "x"` (was `… type bigint …`), `value "99999" is out of range for type std::int16`, `std::int64 out of range`. SQLSTATEs are unchanged. Code that matched `bigint`, `numeric` or `integer` in a message should match `extensions.sqlState` or the SDK error class instead. See [Error Codes](error-codes.md#:~:text=worded%20with%20Gel%E2%80%99s%20type%20names).
+
+## `querySingle` of several results raises
+
+Over the binary protocol, `querySingle`, `queryRequiredSingle` and their JSON forms raise `ResultCardinalityMismatchError` for a query that returns more than one element, as in Gel; `querySingleJSON` sent every row. When the result is known to be a set as the query is parsed, nothing runs and nothing is written. Use `query` for many results. See [Server → Protocol Details](server.md#:~:text=querySingle%2C%20queryRequiredSingle%20and%20their%20JSON%20forms).
+
 ## An object cast of a missing id raises (breaking)
 
 `<T><uuid>$p` now checks that a `T` with that id exists, as in Gel: a missing id, or another type’s object’s id, raises `CardinalityViolationError: 'default::T' with id '…' does not exist` (SQLSTATE `21000`) in a filter, a `select`, `count`, `in` or a link value of an `insert` or `update`. Before, a filter matched nothing and a link write failed with a foreign-key error (`23503`). Callers that catch `ForeignKeyViolationError` around link writes should also catch the SDK’s new `CardinalityViolationError`. For a filter that should just match nothing, compare the id: `filter .program.id = <uuid>$p`. See [EdgeQL → Linking by id](edgeql.md#:~:text=As%20in%20Gel%2C%20the%20cast%20checks%20that%20the%20object%20exists).
