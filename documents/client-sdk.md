@@ -67,8 +67,8 @@ const client = new DiscClient({ baseUrl: "https://disc.example.com" });
 When `baseUrl` is omitted, the client resolves the server URL automatically in this order:
 
 1. **`config.baseUrl`** — an explicit value always wins.
-2. **`DISC_SERVER_URL` env var** — works on any runtime (Deno, Node, Bun). The recommended option for deployed servers, where the working directory and filesystem permissions are unpredictable.
-3. **`disc.toml`** — on Deno, the client walks up from the current working directory for a `disc.toml` (the same lookup the CLI uses) and derives `http://<host>:<port>` from its `[server]` section.
+2. **`DISC_SERVER_URL` env var** — works on any runtime (Deno, Ende, Node, Bun). The recommended option for deployed servers, where the working directory and filesystem permissions are unpredictable.
+3. **`disc.toml`** — on Deno or Ende, the client walks up from the current working directory for a `disc.toml` (the same lookup the CLI uses) and derives `http://<host>:<port>` from its `[server]` section.
 4. **`http://localhost:5656`** — the final fallback.
 
 So a codegen client running inside your project connects on the configured port with no options:
@@ -84,7 +84,7 @@ const client = new DiscClient(); // baseUrl from DISC_SERVER_URL, else disc.toml
 DISC_SERVER_URL=http://db.internal:5656 deno run --allow-net --allow-env server.ts
 ```
 
-`disc.toml` resolution is best-effort and **Deno-only**: a Node or Bun process (e.g. an Apollo/Yoga server) skips step 3 entirely, so set `DISC_SERVER_URL` there. Within Deno it also needs `--allow-read` for the project directory and `--allow-env` to read the variable. If a `disc.toml` is found but can’t be read (permission denied), the client emits a `logger.warn` (when a `logger` is configured) instead of silently falling back — pass `{ logger: console }` while debugging:
+`disc.toml` resolution is best-effort and **Deno/Ende-only**: a Node or Bun process (e.g. an Apollo/Yoga server) skips step 3 entirely, so set `DISC_SERVER_URL` there. Within Deno or Ende it also needs `--allow-read` for the project directory and `--allow-env` to read the variable. If a `disc.toml` is found but can’t be read (permission denied), the client emits a `logger.warn` (when a `logger` is configured) instead of silently falling back — pass `{ logger: console }` while debugging:
 
 ```typescript
 const client = new DiscClient({ logger: console });

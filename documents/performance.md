@@ -230,16 +230,16 @@ Most performance work in Disc is one of: missing index, undersized pool, or cach
 
 ## Benchmark Suite
 
-Disc ships a `deno bench` suite in `benchmarks/` for measuring the pure-CPU stages of the pipeline -- parsing, compilation, codegen, schema diffing, and cache behaviour. Use it to catch regressions in the compiler when you change it; use the [EXPLAIN](#:~:text=an%20expression%20index\).-,EXPLAIN,-EdgeQL%E2%80%99s%20analyze%20keyword) and [Prometheus](#:~:text=Prometheus%20Gauges%20to%20Watch) tooling above for query-level work against real data.
+Disc ships a `ende bench` suite in `benchmarks/` for measuring the pure-CPU stages of the pipeline -- parsing, compilation, codegen, schema diffing, and cache behaviour. Use it to catch regressions in the compiler when you change it; use the [EXPLAIN](#:~:text=an%20expression%20index\).-,EXPLAIN,-EdgeQL%E2%80%99s%20analyze%20keyword) and [Prometheus](#:~:text=Prometheus%20Gauges%20to%20Watch) tooling above for query-level work against real data.
 
 ```bash
-deno task bench
+ende task bench
 ```
 
 The `bench:pg` task runs the same suite with `DISC_PG_AUTO=1`, matching the `test:pg` convention so PG-backed benchmarks can be added under the same harness:
 
 ```bash
-deno task bench:pg
+ende task bench:pg
 ```
 
 ### Suites

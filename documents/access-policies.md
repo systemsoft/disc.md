@@ -230,7 +230,7 @@ Access policies can gate on the running Disc process’s `--allow-*` permission 
 
 ### `runtime::has_permission(<spec>)`
 
-A built-in policy function that pre-evaluates against `Deno.permissions.querySync(...)` at SQL emission time and inlines the result as `TRUE`/`FALSE` in the generated WHERE clause. Postgres can’t call back into Deno; the permission set is fixed for the life of the process, so caching at SQL emission is correct.
+A built-in policy function that pre-evaluates against `Deno.permissions.querySync(...)` at SQL emission time and inlines the result as `TRUE`/`FALSE` in the generated WHERE clause. Postgres can’t call back into Disc; the permission set is fixed for the life of the process, so caching at SQL emission is correct.
 
 ### Spec grammar
 
@@ -696,10 +696,10 @@ Run the access module test suite:
 
 ```bash
 # Unit tests (46 tests)
-deno test access/ --allow-all --no-check
+ende test access/ --allow-all --no-check
 
 # Integration tests with PostgreSQL
-DISC_PG_AUTO=1 deno test server/access-pg.test.ts --allow-all --no-check
+DISC_PG_AUTO=1 ende test server/access-pg.test.ts --allow-all --no-check
 ```
 
 ---

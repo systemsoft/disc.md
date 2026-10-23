@@ -129,9 +129,9 @@ The disc splits into two arcs: outgoing fills 30°–150° on the right semicirc
 
 Reference: `docs/cli.md` (`disc build`). Source: `postgres/embedded-pg.ts`, `server/ui-asset-manifest.ts`, `server/ui-assets.ts`.
 
-Self-hosting Gel means installing the Gel server, installing PostgreSQL separately (or using a managed one), pointing Gel at it, and installing Gel-UI separately for the admin UI. Disc ships **one binary** that contains the Disc server (via `deno compile`), the compiled SvelteKit UI as embedded assets, and the PostgreSQL binary for the target platform. Running `./disc` on a fresh machine gives a working database server with admin UI on `:5656` and no installation steps — like Caddy, SQLite, or Tailscale’s `tailscaled`.
+Self-hosting Gel means installing the Gel server, installing PostgreSQL separately (or using a managed one), pointing Gel at it, and installing Gel-UI separately for the admin UI. Disc ships **one binary** that contains the Disc server (via `ende compile`), the compiled SvelteKit UI as embedded assets, and the PostgreSQL binary for the target platform. Running `./disc` on a fresh machine gives a working database server with admin UI on `:5656` and no installation steps — like Caddy, SQLite, or Tailscale’s `tailscaled`.
 
-`deno compile --include` embeds both the SvelteKit `ui/build/` directory and the cached PostgreSQL distribution. At runtime:
+`ende compile --include` embeds both the SvelteKit `ui/build/` directory and the cached PostgreSQL distribution. At runtime:
 
 - `/ui` is served from the embedded asset manifest (`server/ui-asset-manifest.ts` + `server/ui-assets.ts`); `index.html` falls back for SPA routes.
 - `postgres/embedded-pg.ts` extracts PG to `<DISC_HOME>/embedded-postgres/<version>/` on first start (idempotent via a marker file). After extraction, the existing `PostgresInstance.pgBinDir` plumbing skips the network downloader.
@@ -152,7 +152,7 @@ Cross-platform builds remain limited: the build machine’s PG cache only holds 
 
 Reference: `access/README.md` ("`runtime::has_permission(...)`"). Source: `access/runtime-permissions.ts` (pure spec parser + checker), the `runtime::has_permission` cases in `access/evaluator.ts`.
 
-Database access policies (Gel’s `access policy`, Postgres’s RLS) gate row visibility on application-defined identity but can’t see runtime trust: code running with full filesystem access gets the same treatment as sandboxed code. Because Disc runs on Deno, every running piece of code already has a runtime permission set, and access policies can reference it:
+Database access policies (Gel’s `access policy`, Postgres’s RLS) gate row visibility on application-defined identity but can’t see runtime trust: code running with full filesystem access gets the same treatment as sandboxed code. Because Disc runs on Ende, which keeps Deno’s permission model, every running piece of code already has a runtime permission set, and access policies can reference it:
 
 ```
 type SecretConfig {
@@ -165,7 +165,7 @@ type SecretConfig {
 }
 ```
 
-`runtime::has_permission(<spec>)` is a builtin in the access-policy evaluator. The spec string is parsed at policy-load time into a `Deno.PermissionDescriptor`-shaped object, so SDL typos like `runtime::has_permission("filesystem")` fail loudly rather than silently denying. At SQL emission time the function is pre-evaluated against `Deno.permissions.querySync(...)` and inlined as `TRUE`/`FALSE` in the generated WHERE clause — Postgres can’t call back into Deno, and the permission set is fixed for the life of the process. It composes with existing policies through the standard AND combinator, giving a defense-in-depth layer for the case where application code is compromised but the runtime sandbox is not.
+`runtime::has_permission(<spec>)` is a builtin in the access-policy evaluator. The spec string is parsed at policy-load time into a `Deno.PermissionDescriptor`-shaped object, so SDL typos like `runtime::has_permission("filesystem")` fail loudly rather than silently denying. At SQL emission time the function is pre-evaluated against `Deno.permissions.querySync(...)` and inlined as `TRUE`/`FALSE` in the generated WHERE clause — Postgres can’t call back into Disc, and the permission set is fixed for the life of the process. It composes with existing policies through the standard AND combinator, giving a defense-in-depth layer for the case where application code is compromised but the runtime sandbox is not.
 
 Disc’s extensions are currently TS modules that share the server’s permission set, so the check is effectively a deployment-time gate. If Disc later grows worker-based extensions, a per-worker permission set can be threaded through `AccessContext.permissionChecker` without touching the SDL grammar.
 

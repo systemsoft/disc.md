@@ -76,7 +76,7 @@ disc init my-app --skip-postgres
 ```
 my-project/
   schema.disc   # Schema definition
-  deno.json     # Deno configuration with tasks
+  deno.json     # Disc tasks (run with `deno task` or `ende task`)
   .env          # Environment variables
   .gitignore    # Git ignore rules
   mod.ts        # Module entry point
@@ -603,7 +603,7 @@ cd ui && npm install && npm run build
 
 ## `disc build`
 
-Compile Disc into a self-contained binary using `deno compile`. Supports cross-compilation to multiple platforms.
+Compile Disc into a self-contained binary using `ende compile`. Supports cross-compilation to multiple platforms.
 
 ### Usage
 
@@ -621,15 +621,16 @@ disc build [options]
 
 ### Supported platforms
 
-| Platform       | Deno Target                 |
+| Platform       | Target                      |
 | :------------- | :-------------------------- |
 | `darwin-arm64` | `aarch64-apple-darwin`      |
-| `darwin-x64`   | `x86_64-apple-darwin`       |
 | `linux-arm64`  | `aarch64-unknown-linux-gnu` |
 | `linux-x64`    | `x86_64-unknown-linux-gnu`  |
 | `windows-x64`  | `x86_64-pc-windows-msvc`    |
 
-> Windows ARM64 has no `deno compile` target and no Zonky PG build, so `windows-x64` is the only Windows target. Windows-on-ARM runs it under x64 emulation. The compiled binary is written with a `.exe` extension (`disc-windows-x64.exe`).
+> Intel macOS (`darwin-x64`) is not supported: Ende, the runtime Disc is built on, has no `x86_64-apple-darwin` build.
+>
+> Zonky publishes no Windows ARM64 PostgreSQL build, so `windows-x64` is the only Windows target. Windows-on-ARM runs it under x64 emulation. The compiled binary is written with a `.exe` extension (`disc-windows-x64.exe`).
 
 ### Examples
 
@@ -656,7 +657,7 @@ When `--platform <p>` is set, `disc build` stages the target platform’s Postgr
 ```
 Building Disc binary...
   Output: ./disc
-  Command: deno compile --allow-net --allow-read --allow-write --allow-env --allow-run --output ./disc cli/main.ts
+  Command: ~/.ende/bin/ende compile --allow-net --allow-read --allow-write --allow-env --allow-run --output ./disc cli/main.ts
 
 Build complete!
   Binary: ./disc (45.23 MB)
@@ -685,7 +686,7 @@ disc deploy --format <format> [options]
 
 #### docker
 
-Generates a `Dockerfile` based on the official Deno image. Exposes port 5656 and expects `DATABASE_URL` to be set at runtime.
+Generates a `Dockerfile` that installs a pinned Ende release on `debian:bookworm-slim`. Exposes port 5656 and expects `DATABASE_URL` to be set at runtime.
 
 ```bash
 disc deploy --format docker
@@ -1169,7 +1170,7 @@ When no `disc.toml` is found, commands fall back to the current directory name a
 
 ## Programmatic API
 
-Every `disc <command>` invocation routes through one implementation (`cli/commands.ts`), and a stable subset of that surface is re-exported for use from Deno scripts -- CI pipelines, setup scripts, and test fixtures that need to drive Disc without spawning subprocesses.
+Every `disc <command>` invocation routes through one implementation (`cli/commands.ts`), and a stable subset of that surface is re-exported for use from TypeScript scripts -- CI pipelines, setup scripts, and test fixtures that need to drive Disc without spawning subprocesses.
 
 ```typescript
 import { CLI } from "disc";

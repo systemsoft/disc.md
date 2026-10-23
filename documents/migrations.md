@@ -367,22 +367,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: denoland/setup-deno@v1
+      - name: Install Disc
+        run: |
+          curl -fsSL https://disc.sh/install | sh
+          echo "$HOME/.disc/bin" >> "$GITHUB_PATH"
       - name: Plan against staging
         env:
           DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
-        run: deno task cli migrate --dry-run
+        run: disc migrate --dry-run
       - name: Apply to staging
         env:
           DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
-        run: deno task cli migrate --auto-approve
+        run: disc migrate --auto-approve
       - name: Smoke test staging
         run: ./scripts/smoke.sh ${{ secrets.STAGING_URL }}
       - name: Apply to production
         if: github.ref == 'refs/heads/main'
         env:
           DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
-        run: deno task cli migrate --auto-approve
+        run: disc migrate --auto-approve
 ```
 
 The dry-run step has no side effects on staging (planned but never applied). Add `--unsafe` only when the migration is intentionally destructive _and_ the previous step (smoke or backup) succeeded.

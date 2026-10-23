@@ -13,29 +13,29 @@ The two main entry points are the non-PG suite (fast, runs in CI on every push) 
 ### Non-PG suite
 
 ```bash
-deno task test
+ende task test
 ```
 
 Runs every `*.test.ts` file under `schema/`, `compiler/`, `migration/`, `cli/`, `lib/`, `postgres/`, `server/`, `protocol/`, `auth/`, `access/`, `extensions/`, `sdk/`, `codegen/`, `edgeql/`, and `tests/`. PG-backed tests are gated through `tests/pg-test-harness.ts` and skip cleanly when no PostgreSQL is reachable.
 
-> `deno task test` (and all sibling tasks) chains `deno task prep` first, which writes a stub for the git-ignored `postgres/embedded-pg-manifest.ts` if missing. Bare `deno test`/`deno check` invocations bypass that chain — run `deno task prep` once after cloning.
+> `ende task test` (and all sibling tasks) chains `ende task prep` first, which writes a stub for the git-ignored `postgres/embedded-pg-manifest.ts` if missing. Bare `ende test`/`ende check` invocations bypass that chain — run `ende task prep` once after cloning.
 
 Tip: run a single file by passing it directly:
 
 ```bash
-deno test --allow-all --no-check schema/parser.test.ts
+ende test --allow-all --no-check schema/parser.test.ts
 ```
 
 Filter by test name with `--filter`:
 
 ```bash
-deno test --allow-all --no-check --filter "rejects empty email" auth/
+ende test --allow-all --no-check --filter "rejects empty email" auth/
 ```
 
 ### PG-backed suite
 
 ```bash
-DISC_PG_AUTO=1 deno task test:pg
+DISC_PG_AUTO=1 ende task test:pg
 ```
 
 `DISC_PG_AUTO=1` tells the harness to auto-start a temp PostgreSQL on a random port (via `pg_ctl`) and tear it down at the end of the run. The harness searches for `pg_ctl` via `DISC_PG_BINARY_PATH`, Postgres.app, Homebrew, then `which pg_ctl`. To skip the auto-start and use a server you already have running, set `DATABASE_URL` instead.
@@ -67,10 +67,10 @@ Tests are classified by whether they need a running PostgreSQL instance and by w
 | **Structural pins** | `tests/gel-divergence-pins.test.ts`, `tests/typecheck-pins.test.ts` | No       | Always         |
 | **UI**              | `tests/ui-*.test.ts`                                                | No       | Always         |
 
-Production e2e tests are not part of the default `deno task test` invocation — they take longer and exercise the full HTTP/binary stack against a live server. Run them explicitly:
+Production e2e tests are not part of the default `ende task test` invocation — they take longer and exercise the full HTTP/binary stack against a live server. Run them explicitly:
 
 ```bash
-DISC_PG_AUTO=1 deno test --allow-all --no-check tests/production-e2e/
+DISC_PG_AUTO=1 ende test --allow-all --no-check tests/production-e2e/
 ```
 
 ---
@@ -172,7 +172,7 @@ A future PR that "modernizes" the binary server to `Deno.serve` will trip the pi
 
 ## Env isolation
 
-CLI tests that mutate `Deno.env` MUST use `EnvMock` from [`tests/test-utils.ts`](https://github.com/systemsoft/disc/blob/primary/tests/test-utils.ts). Setting `Deno.env.set` directly leaks across tests run in the same Deno process and causes order-dependent failures.
+CLI tests that mutate `Deno.env` MUST use `EnvMock` from [`tests/test-utils.ts`](https://github.com/systemsoft/disc/blob/primary/tests/test-utils.ts). Setting `Deno.env.set` directly leaks across tests run in the same process and causes order-dependent failures.
 
 ```typescript
 import { EnvMock } from "../tests/test-utils.ts";
@@ -216,16 +216,16 @@ grep -rn 'ignore: true' --include='*.test.ts'  # should match permanent skips on
 
 ### Cleanup
 
-Drop the tables you created in a `finally` block — `resetTestDatabase(pool)` or `cleanupTestTables(dsn)` — so the next test starts clean. Tests that open additional connections, file handles, or background tasks must close them in `finally` too (`pool.close()`, `client.end()`). Deno’s strict resource-leak detection catches anything left open and fails the test.
+Drop the tables you created in a `finally` block — `resetTestDatabase(pool)` or `cleanupTestTables(dsn)` — so the next test starts clean. Tests that open additional connections, file handles, or background tasks must close them in `finally` too (`pool.close()`, `client.end()`). The test runner’s strict resource-leak detection catches anything left open and fails the test.
 
 ---
 
 ## Common pitfalls
 
 - **`server.start()` returns `finished`, not done.** It returns a promise that resolves when the server stops. In tests, fire-and-forget with `void server.start()` (or capture the promise and `await` only at teardown).
-- **Response body leak in HTTP tests.** Deno fails tests that don’t consume response bodies. If you only check status, call `await response.body?.cancel()`.
-- **Type errors in test files block `deno check`.** The full project (including `*.test.ts` files) passes `deno check` on every commit. Use `requireAuthResponse(result)` and `if (!parseResult.ok) throw parseResult.error;` to narrow `LoginResult` and `Result<T, E>` unions before accessing fields.
-- **Cross-test order dependence.** Deno’s test runner doesn’t guarantee order across files. Don’t rely on a previous test having created data — reset with `resetTestDatabase(pool)` / `cleanupTestTables(dsn)` between tests, or seed inside the test.
+- **Response body leak in HTTP tests.** The test runner fails tests that don’t consume response bodies. If you only check status, call `await response.body?.cancel()`.
+- **Type errors in test files block `ende check`.** The full project (including `*.test.ts` files) passes `ende check` on every commit. Use `requireAuthResponse(result)` and `if (!parseResult.ok) throw parseResult.error;` to narrow `LoginResult` and `Result<T, E>` unions before accessing fields.
+- **Cross-test order dependence.** The test runner doesn’t guarantee order across files. Don’t rely on a previous test having created data — reset with `resetTestDatabase(pool)` / `cleanupTestTables(dsn)` between tests, or seed inside the test.
 
 ---
 
@@ -237,4 +237,4 @@ If you find yourself writing tests that don’t fit any existing category — fo
 
 ## Benchmarks
 
-Correctness lives in `deno task test`; throughput lives in `deno task bench`, a separate `deno bench` suite under `benchmarks/` covering the parser, compiler, codegen, schema differ, and caches. It shares fixtures with the test suite (`createTestSchema()` from `compiler/context.ts`) and runs entirely in-process. See [Performance → Benchmark Suite](performance.md#:~:text=for%20code%20changes.-,Benchmark%20Suite,-Disc%20ships%20a).
+Correctness lives in `ende task test`; throughput lives in `ende task bench`, a separate `ende bench` suite under `benchmarks/` covering the parser, compiler, codegen, schema differ, and caches. It shares fixtures with the test suite (`createTestSchema()` from `compiler/context.ts`) and runs entirely in-process. See [Performance → Benchmark Suite](performance.md#:~:text=for%20code%20changes.-,Benchmark%20Suite,-Disc%20ships%20a).

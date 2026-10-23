@@ -48,7 +48,7 @@ No restart is required for most infrastructure changes — redeploy the containe
 
 ## TLS Setup
 
-Disc reads TLS certificate files directly from disk at startup. The server uses Deno’s native TLS support, so no external TLS library is required.
+Disc reads TLS certificate files directly from disk at startup. The server uses Ende’s native TLS support, so no external TLS library is required.
 
 ### Self-Signed Certificate (Development)
 
@@ -584,21 +584,21 @@ docker compose down
 
 The monitoring overlay expects a Prometheus config at `deploy/prometheus.yml` and automatically sets `DISC_ENABLE_METRICS=true` on the Disc service.
 
-Convenience tasks are available in `deno.json`:
+Convenience tasks are available in `ende.json`:
 
 ```bash
-deno task docker:build   # Build the production image
-deno task docker:up      # Start the compose stack
-deno task docker:down    # Stop the compose stack
+ende task docker:build   # Build the production image
+ende task docker:up      # Start the compose stack
+ende task docker:down    # Stop the compose stack
 ```
 
 ---
 
 ## Native Binary
 
-Disc can be compiled to a self-contained native binary using Deno’s `deno compile`.
+Disc can be compiled to a self-contained native binary using Ende’s `ende compile`.
 
-The resulting binary requires no runtime installation -- it embeds Deno and all dependencies.
+The resulting binary requires no runtime installation -- it embeds the Ende runtime and all dependencies.
 
 ### Building
 
@@ -606,8 +606,8 @@ The resulting binary requires no runtime installation -- it embeds Deno and all 
 # Build for the current platform
 disc build
 
-# Or via Deno task
-deno task build
+# Or via the Ende task
+ende task build
 ```
 
 The binary is written to `./disc` by default.
@@ -619,19 +619,17 @@ Target a specific platform with the `--platform` flag:
 ```bash
 disc build --platform linux-x64
 disc build --platform linux-arm64
-disc build --platform darwin-x64
 disc build --platform darwin-arm64
 disc build --platform windows-x64
 ```
 
-Platform-specific Deno tasks are also available:
+Platform-specific Ende tasks are also available:
 
 ```bash
-deno task build:linux-x64
-deno task build:linux-arm64
-deno task build:darwin-x64
-deno task build:darwin-arm64
-deno task build:windows-x64
+ende task build:linux-x64
+ende task build:linux-arm64
+ende task build:darwin-arm64
+ende task build:windows-x64
 ```
 
 When cross-compiling, the output binary is named `./disc-{platform}` (e.g., `./disc-linux-x64`); the `windows-x64` target adds a `.exe` extension (`./disc-windows-x64.exe`). You can override the output path with `--output`:
@@ -642,17 +640,18 @@ disc build --platform linux-x64 --output ./dist/disc-server
 
 ### Available Platforms
 
-| Platform       | Deno Target                 |
+| Platform       | Target                      |
 | :------------- | :-------------------------- |
 | `darwin-arm64` | `aarch64-apple-darwin`      |
-| `darwin-x64`   | `x86_64-apple-darwin`       |
 | `linux-arm64`  | `aarch64-unknown-linux-gnu` |
 | `linux-x64`    | `x86_64-unknown-linux-gnu`  |
 | `windows-x64`  | `x86_64-pc-windows-msvc`    |
 
+> Intel macOS (`darwin-x64`) is not supported: Ende, the runtime Disc is built on, has no `x86_64-apple-darwin` build.
+
 ### Cross-Compilation Limitations
 
-Deno’s cross-compilation downloads a platform-specific runtime snapshot. This works reliably for most cases, but note:
+`ende compile` downloads a platform-specific runtime (`endert`) for each target. This works reliably for most cases, but note:
 
 - The binary size may differ across platforms
 - Native plugins or FFI bindings (if any) are not cross-compiled
@@ -852,7 +851,7 @@ The generated files include comments indicating they were scaffolded by `disc de
 
 ## Kubernetes (Helm)
 
-Disc ships a Helm chart at `deploy/helm/disc` for self-hosting on Kubernetes. Unlike `disc deploy`, the chart is not generated per-project -- it is a versioned artifact in the repository, tracked against the Disc release (`appVersion` in `Chart.yaml` is bumped by `deno task version:bump`).
+Disc ships a Helm chart at `deploy/helm/disc` for self-hosting on Kubernetes. Unlike `disc deploy`, the chart is not generated per-project -- it is a versioned artifact in the repository, tracked against the Disc release (`appVersion` in `Chart.yaml` is bumped by `ende task version:bump`).
 
 ### What the Chart Deploys
 
@@ -993,7 +992,7 @@ curl -s http://localhost:5656/health | jq ".pool"
 **Symptoms:**
 
 - `disc_memory_heap_used_bytes` grows over time without leveling off
-- Deno process OOM-killed
+- Disc process OOM-killed
 
 **Diagnosis:**
 

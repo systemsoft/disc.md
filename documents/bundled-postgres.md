@@ -8,7 +8,7 @@ Disc downloads and manages PostgreSQL automatically. Users never install, config
 
 When you run `disc init`, the following happens:
 
-1. **Platform detection.** Disc detects your operating system and CPU architecture (`darwin-arm64`, `darwin-x64`, `linux-x64`, `linux-arm64`, `windows-x64`).
+1. **Platform detection.** Disc detects your operating system and CPU architecture (`darwin-arm64`, `linux-x64`, `linux-arm64`, `windows-x64`). Intel macOS is not supported.
 2. **Binary download.** A pre-built PostgreSQL binary is downloaded from a trusted source and cached at `~/.disc/postgres/<version>/`. If the binary is already cached, the download is skipped.
 3. **Checksum verification.** The downloaded archive is verified against a SHA-256 checksum before extraction. If the checksum does not match, the download is rejected.
 4. **Archive extraction.** The binary archive is extracted and the directory structure is normalized so that `bin/`, `lib/`, and `share/` are directly under the version directory.

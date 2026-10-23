@@ -786,7 +786,7 @@ Supported: TCP (25/587) and direct TLS (465), EHLO with extension parsing, START
 
 Not supported: DKIM/SPF/DMARC signing, attachments, XOAUTH2, connection pooling (one connection per send, like nodemailer's default transport -- auth-driven sends are infrequent), pipelining, SMTPUTF8, and DSN.
 
-> **TLS validation caveat ([gh/geldata#8533](https://github.com/geldata/gel/issues/8533)).** Deno exposes no per-connection `rejectUnauthorized` flag on `connectTls` / `startTls`. Setting `tlsRejectUnauthorized: false` only logs a warning at mailer construction -- it does not disable validation. To actually talk to a self-signed server you must launch the process with `deno run --unsafely-ignore-certificate-errors=smtp.dev.local ...`. For production, point `host` at a server with a valid certificate.
+> **TLS validation caveat ([gh/geldata#8533](https://github.com/geldata/gel/issues/8533)).** Ende, like Deno, exposes no per-connection `rejectUnauthorized` flag on `connectTls` / `startTls`. Setting `tlsRejectUnauthorized: false` only logs a warning at mailer construction -- it does not disable validation. To actually talk to a self-signed server you must launch the process with `ende run --unsafely-ignore-certificate-errors=smtp.dev.local ...`. For production, point `host` at a server with a valid certificate.
 
 #### Which events send mail
 

@@ -1,6 +1,6 @@
 # Server Configuration
 
-The Disc server provides an HTTP/JSON API for executing EdgeQL queries, WebSocket subscriptions, authentication, schema introspection, extension routing, health checks, and Prometheus metrics. It runs on Deno and connects to PostgreSQL (bundled or external) as its storage backend.
+The Disc server provides an HTTP/JSON API for executing EdgeQL queries, WebSocket subscriptions, authentication, schema introspection, extension routing, health checks, and Prometheus metrics. It runs on Ende and connects to PostgreSQL (bundled or external) as its storage backend.
 
 ---
 
@@ -962,7 +962,7 @@ The server handles `SIGTERM` and `SIGINT` signals for graceful shutdown.
 2. **Reject new requests** -- all new incoming requests receive `503 Service Unavailable` with `{"error": "Server is shutting down"}`.
 3. **Drain in-flight requests** -- the server waits for all currently processing requests to complete, up to `shutdownDrainTimeout` milliseconds (default: 30000).
 4. **Stop binary protocol server** -- if running, the binary protocol server is shut down.
-5. **Stop HTTP server** -- the Deno HTTP server is shut down.
+5. **Stop HTTP server** -- the HTTP server is shut down.
 6. **Shut down extensions** -- all registered extensions are shut down.
 7. **Close database registry** -- if multi-database is enabled, all database pools are drained.
 8. **Close protocol handler** -- the main connection pool is drained.

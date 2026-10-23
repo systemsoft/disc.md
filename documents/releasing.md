@@ -28,11 +28,11 @@ git push origin primary --tags
 
 Pushing the tag triggers `.github/workflows/release.yml`, which:
 
-1. Builds native binaries for `linux-x64`, `linux-arm64`, `darwin-arm64`, and `windows-x64` (UI is bundled via `bun run build` + `disc build`). The `windows-x64` binary is cross-compiled on the Linux runner — `deno compile --target x86_64-pc-windows-msvc` plus the PG staging extract chain (unzip + xz) both run there — and ships as `disc-windows-x64.exe`.
+1. Builds native binaries for `linux-x64`, `linux-arm64`, `darwin-arm64`, and `windows-x64` (UI is bundled via `bun run build` + `disc build`). The `windows-x64` binary is cross-compiled on the Linux runner — `ende compile --target x86_64-pc-windows-msvc` plus the PG staging extract chain (unzip + xz) both run there — and ships as `disc-windows-x64.exe`.
 2. Computes `sha256` checksums.
 3. Publishes a GitHub release named `v$VERSION` with the four binaries, a `CHECKSUMS.txt` file, and auto-generated release notes.
 
-> **`darwin-x64` is not in the release matrix.** The `macos-13` GitHub-hosted runner hangs indefinitely on the build step, so we don’t ship a pre-built Intel-Mac binary. Platform support stays in the CLI — Intel-Mac users can build from source via `deno task build:darwin-x64`, or run the `darwin-arm64` binary under Rosetta. Re-introducing the matrix entry would require fixing the runner hang first.
+> **There is no `darwin-x64` build.** Intel macOS is not supported: Ende, the runtime Disc is built on, has no `x86_64-apple-darwin` build, and `disc build` rejects the platform.
 
 ## Man pages
 

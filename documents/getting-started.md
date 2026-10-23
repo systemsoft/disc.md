@@ -6,18 +6,13 @@ This guide takes you from zero to a running Disc project in about 10 minutes. By
 
 ## Prerequisites
 
-**Deno** (latest stable) is the only requirement. Disc runs on Deno and manages its own PostgreSQL instance automatically -- you do not need to install PostgreSQL.
+Nothing, for the install script or Homebrew: the `disc` binary carries its own runtime and manages its own PostgreSQL instance automatically -- you do not need to install PostgreSQL.
 
-Install Deno if you have not already:
-
-```bash
-curl -fsSL https://deno.land/install.sh | sh
-```
-
-Verify the installation:
+Building Disc from source needs [Ende](https://docs.ende.sh), the Deno fork Disc is built on:
 
 ```bash
-deno --version
+curl -fsSL https://ende.sh/install.sh | sh
+ende --version
 ```
 
 ---
@@ -40,32 +35,27 @@ This installs `disc` into `~/.disc/bin`. Pin a specific release by passing it th
 curl -fsSL https://disc.sh/install | sh -s -- v2026.06.13
 ```
 
-Prebuilt binaries are published for macOS (arm64), Linux (x64/arm64), and Windows (x64), and verified against a published SHA-256 checksum on download. On Intel macOS there is no prebuilt binary — use Homebrew or build from source (the Apple Silicon binary also runs under Rosetta 2). Pass `--no-modify-path` to skip the PATH edit.
+Prebuilt binaries are published for macOS (arm64), Linux (x64/arm64), and Windows (x64), and verified against a published SHA-256 checksum on download. Intel Macs are not supported, because Ende, the runtime Disc is built on, has no darwin-x64 build; run Disc in Docker or a Linux VM instead. Pass `--no-modify-path` to skip the PATH edit.
 
 ### Homebrew (macOS, Linux)
 
-The Homebrew Formula builds Disc from source via `deno compile` and installs the binary into `$(brew --prefix)/bin`. `deno` and `bun` are pulled in automatically.
+The Homebrew formula installs the same prebuilt binary as the install script, checked against its SHA-256, into `$(brew --prefix)/bin`. It covers macOS on Apple Silicon and Linux (x64/arm64), and needs no other dependencies.
 
 ```bash
-# Cutting-edge (primary branch HEAD):
-brew install --HEAD https://raw.githubusercontent.com/systemsoft/disc/primary/homebrew/disc.rb
-
-# Stable (latest tagged release):
-brew install https://raw.githubusercontent.com/systemsoft/disc/primary/homebrew/disc.rb
+brew tap systemsoft/disc
+brew install disc
 ```
 
-The brew-built binary doesn’t bundle PostgreSQL — the runtime downloads it on first `disc init` or `disc serve`. If you want a bundled binary instead, build from source with `deno task build` (see "From source" below).
+See [`homebrew/README.md`](https://github.com/systemsoft/disc/blob/primary/homebrew/README.md) for how the formula is maintained.
 
-A standalone tap repo (`brew tap systemsoft/disc && brew install disc`) is planned; until it’s published, the Formula URL above is the canonical install path. See [`homebrew/README.md`](https://github.com/systemsoft/disc/blob/primary/homebrew/README.md) for the full rationale.
+### From source (macOS on Apple Silicon, Linux, Windows)
 
-### From source (any platform)
-
-Clone the repo and use the existing `deno task build`:
+With [Ende](https://docs.ende.sh) installed (see Prerequisites), clone the repo and run `ende task build`:
 
 ```bash
 git clone https://github.com/systemsoft/disc.git
 cd disc
-deno task build
+ende task build
 sudo install ./disc /usr/local/bin/disc   # or wherever your PATH points
 ```
 
@@ -81,19 +71,13 @@ Create a new Disc project:
 disc init my-app
 ```
 
-Or, if you have not installed the `disc` binary globally, run via Deno:
-
-```bash
-deno run -A jsr:@disc/cli init my-app
-```
-
 This creates the following structure:
 
 ```
 my-app/
   .env            # Database configuration
   .gitignore
-  deno.json       # Deno configuration with Disc tasks
+  deno.json       # Disc tasks (run with `deno task` or `ende task`)
   disc.toml       # Project config (resolved by lib/project-context.ts)
   migrations/     # Migration files (auto-generated)
   mod.ts          # Application entry point

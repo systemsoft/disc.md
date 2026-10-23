@@ -60,7 +60,7 @@ volumes:
 
 ### What it does
 
-- **Disc service** is built from the repo’s production `Dockerfile` (multi-stage Deno build, non-root user, `HEALTHCHECK` on `/health/ready`). Connects to PostgreSQL via the compose-network DNS name `postgres`.
+- **Disc service** is built from the repo’s production `Dockerfile` (multi-stage Ende build, non-root user, `HEALTHCHECK` on `/health/ready`). Connects to PostgreSQL via the compose-network DNS name `postgres`.
 - **PostgreSQL service** uses the official `postgres:16-alpine` image. `pg_isready` healthcheck blocks Disc from starting until PG accepts connections (`depends_on: condition: service_healthy`).
 - **Named volume** `pgdata` holds the PostgreSQL data directory across `docker compose down` / `up` cycles. Use `docker compose down -v` to wipe it.
 
@@ -209,7 +209,7 @@ services:
   disc:
     # ...
     healthcheck:
-      test: ["CMD", "deno", "eval", "const r = await fetch('http://localhost:5656/health/ready'); if (!r.ok) Deno.exit(1);"]
+      test: ["CMD", "ende", "eval", "const r = await fetch('http://localhost:5656/health/ready'); if (!r.ok) Deno.exit(1);"]
       interval: 30s
       timeout: 5s
       retries: 3
