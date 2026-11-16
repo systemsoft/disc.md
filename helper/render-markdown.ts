@@ -24,7 +24,8 @@ export default async(FILE_PATH: Compatible) => {
     .use(rehypeDocument, {
       css: "https://uchu.style/uchu.css",
       js: [
-        "/static/highlight.min.js"
+        "/static/highlight.min.js",
+        "https://neatstats.net/view.js"
       ],
       language: "en",
       link: [
